@@ -1,0 +1,30 @@
+name: CI
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.12'
+      - name: Install dependencies
+        run: |
+          python -m venv venv
+          source venv/bin/activate
+          python -m pip install --upgrade pip
+          pip install -r requirements-dev.txt
+      - name: Import check
+        run: |
+          source venv/bin/activate
+          python -c "import sys; sys.path.insert(0,'/home/runner/work/Chloe-alpha/Chloe-alpha'); import engine_alpha; print('import ok')"
+      - name: Run tests
+        run: |
+          source venv/bin/activate
+          pytest -q
