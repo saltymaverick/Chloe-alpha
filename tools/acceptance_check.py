@@ -205,6 +205,49 @@ def _section_ops() -> Dict[str, Any]:
         return {"ok": False, "details": {"error": str(exc)}}
 
 
+def _section_accounting() -> Dict[str, Any]:
+    pf_live_adj = _read_json(REPORTS / "pf_live_adj.json")
+    pf_local_adj = _read_json(REPORTS / "pf_local_adj.json")
+    equity_path = REPORTS / "equity_curve.jsonl"
+    tail = _read_jsonl_tail(equity_path, lines=1)
+
+    pf_live_val = pf_live_adj.get("pf")
+    pf_local_val = pf_local_adj.get("pf")
+    pf_ok = isinstance(pf_live_val, (int, float)) and isinstance(pf_local_val, (int, float))
+
+    lines = 0
+    if equity_path.exists():
+        try:
+            with equity_path.open("r") as f:
+                lines = sum(1 for _ in f)
+        except Exception:
+            lines = 0
+    curve_ok = lines >= 10
+
+    ts = tail[0].get("ts") if tail else None
+    fresh = _within_hours(ts, DREAM_MAX_AGE) if ts else False
+
+    ok = all([pf_ok, curve_ok, fresh])
+    details = {
+        "pf_adj_live": pf_live_val,
+        "pf_adj_local": pf_local_val,
+        "points": lines,
+        "fresh_hours": None,
+    }
+    if ts:
+        try:
+            dt = datetime.fromisoformat(ts.replace("Z", "+00:00"))
+            delta = datetime.now(timezone.utc) - dt
+            details["fresh_hours"] = round(delta.total_seconds() / 3600, 2)
+        except Exception:
+            details["fresh_hours"] = None
+    else:
+        details["fresh_hours"] = None
+
+    details.update({"curve_ok": curve_ok, "pf_ok": pf_ok, "fresh": fresh})
+    return {"ok": ok, "details": details}
+
+
 def main() -> int:
     sections = {
         "feeds": _section_feeds(),
@@ -213,6 +256,7 @@ def main() -> int:
         "dream": _section_dream(),
         "mirror": _section_mirror(),
         "ops": _section_ops(),
+        "accounting": _section_accounting(),
     }
     overall = all(section.get("ok") for section in sections.values())
     summary = {"ts": _iso_now(), "PASS": overall, "sections": sections}
