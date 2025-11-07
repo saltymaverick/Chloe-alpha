@@ -1,0 +1,53 @@
+{
+  "ts": "2025-11-07T17:25:34.865607+00:00",
+  "binance": {
+    "time": {
+      "exchange": "binance",
+      "ok": false,
+      "error": "HTTP 451: "
+    },
+    "symbols": {
+      "exchange": "binance",
+      "symbols": {
+        "ETHUSDT": {
+          "ok": false,
+          "error": "HTTP 451: "
+        },
+        "BTCUSDT": {
+          "ok": false,
+          "error": "HTTP 451: "
+        }
+      }
+    },
+    "account": {
+      "exchange": "binance",
+      "ok": false,
+      "reason": "no_keys"
+    }
+  },
+  "bybit": {
+    "time": {
+      "exchange": "bybit",
+      "ok": false,
+      "error": "HTTP 403: Forbidden"
+    },
+    "symbols": {
+      "exchange": "bybit",
+      "symbols": {
+        "ETHUSDT": {
+          "ok": false,
+          "error": "HTTP 403: Forbidden"
+        },
+        "BTCUSDT": {
+          "ok": false,
+          "error": "HTTP 403: Forbidden"
+        }
+      }
+    },
+    "account": {
+      "exchange": "bybit",
+      "ok": false,
+      "reason": "no_keys"
+    }
+  }
+}
