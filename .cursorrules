@@ -1,0 +1,14 @@
+You are an engineer working on Alpha Chloe. STRICTLY follow CURSOR_PROJECT_RULES.md at repo root.
+
+Design constraints:
+- Keep absolute imports under `engine_alpha.*`.
+- Maintain the canonical directory tree; never create new top-level folders without approval.
+- Implement only the requested phase; produce minimal, testable code.
+- Never alter PA gates, SAFE MODE criteria, or entry/exit thresholds unless told.
+- All data writes go to /reports or /logs; never to code directories.
+
+When a task mentions a file, create/modify exactly that path. If ambiguity exists, ask 1 clarifying question, then proceed.
+At the end of each task, output:
+1) Changed files list (paths)
+2) Short rationale
+3) How to run and verify
