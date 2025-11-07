@@ -308,6 +308,21 @@ def _section_risk() -> Dict[str, Any]:
     return {"ok": ok, "details": data}
 
 
+def _section_governance() -> Dict[str, Any]:
+    data = _read_json(REPORTS / "governance_vote.json")
+    if not data:
+        return {"ok": False, "details": {"error": "missing"}}
+    sci = data.get("sci")
+    rec = data.get("recommendation")
+    modules = data.get("modules", {})
+    ok = isinstance(sci, (int, float)) and 0.0 <= sci <= 1.0 and rec in {"GO", "PAUSE", "REVIEW"}
+    for info in modules.values():
+        score = info.get("score")
+        if not isinstance(score, (int, float)) or not 0.0 <= score <= 1.0:
+            ok = False
+    return {"ok": ok, "details": data}
+
+
 def _section_council() -> Dict[str, Any]:
     weights = _read_json(REPORTS / "council_weights.json")
     if not weights:
@@ -371,6 +386,7 @@ def main() -> int:
         "sandbox": _section_sandbox(),
         "council": _section_council(),
         "risk": _section_risk(),
+        "governance": _section_governance(),
     }
     overall = all(section.get("ok") for section in sections.values())
     summary = {"ts": _iso_now(), "PASS": overall, "sections": sections}

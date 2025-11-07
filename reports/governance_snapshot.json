@@ -1,0 +1,27 @@
+{
+  "ts": "2025-11-07T22:07:12.841099+00:00",
+  "modules": {
+    "dream": {
+      "enabled": true,
+      "score": 0.5,
+      "note": "dream bias vs baseline"
+    },
+    "evolver": {
+      "enabled": true,
+      "score": 0.5,
+      "note": "evolver pf_cf vs baseline"
+    },
+    "sandbox": {
+      "enabled": true,
+      "score": 0.30607860462737246,
+      "note": "sandbox PF_adj/2"
+    },
+    "mirror": {
+      "enabled": true,
+      "score": 0.698952829562487,
+      "note": "portfolio PF/1.5"
+    }
+  },
+  "sci": 0.5012578585474649,
+  "recommendation": "REVIEW"
+}
