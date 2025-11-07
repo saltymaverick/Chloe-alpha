@@ -290,6 +290,29 @@ def _section_promotion() -> Dict[str, Any]:
     return {"ok": ok, "details": entry}
 
 
+def _section_sandbox() -> Dict[str, Any]:
+    status_path = REPORTS / "sandbox" / "sandbox_status.json"
+    runs_path = REPORTS / "sandbox" / "sandbox_runs.jsonl"
+    if not status_path.exists():
+        proposals = REPORTS / "promotion_proposals.jsonl"
+        if runs_path.exists():
+            return {"ok": False, "details": {"error": "status_missing"}}
+        if not proposals.exists():
+            return {"ok": True, "details": {"note": "no sandbox activity"}}
+        return {"ok": True, "details": {"note": "no sandbox activity"}}
+    try:
+        status = json.loads(status_path.read_text())
+    except Exception:
+        return {"ok": False, "details": {"error": "status_unreadable"}}
+    allowed = {"queued", "running", "complete"}
+    invalid = {sid: st for sid, st in status.items() if st not in allowed}
+    ok = not invalid
+    details = {"states": status, "invalid": invalid}
+    if runs_path.exists():
+        details["last_run"] = _read_jsonl_tail(runs_path, 1)
+    return {"ok": ok, "details": details}
+
+
 def main() -> int:
     sections = {
         "feeds": _section_feeds(),
@@ -301,6 +324,7 @@ def main() -> int:
         "accounting": _section_accounting(),
         "confidence": _section_confidence(),
         "promotion": _section_promotion(),
+        "sandbox": _section_sandbox(),
     }
     overall = all(section.get("ok") for section in sections.values())
     summary = {"ts": _iso_now(), "PASS": overall, "sections": sections}
