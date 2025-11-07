@@ -1,0 +1,138 @@
+{
+  "signals": [
+    {
+      "name": "Ret_G5",
+      "category": "technical",
+      "source": "fetch_ret_g5",
+      "norm": "z-tanh",
+      "weight": 1.0,
+      "description": "5-period return (G5)"
+    },
+    {
+      "name": "RSI_14",
+      "category": "technical",
+      "source": "fetch_rsi_14",
+      "norm": "bounded",
+      "weight": 1.0,
+      "description": "RSI(14) indicator",
+      "bounds": {
+        "min": 0,
+        "max": 100,
+        "center": 50
+      }
+    },
+    {
+      "name": "MACD_Hist",
+      "category": "technical",
+      "source": "fetch_macd_hist",
+      "norm": "z-tanh",
+      "weight": 1.0,
+      "description": "MACD histogram"
+    },
+    {
+      "name": "VWAP_Dist",
+      "category": "technical",
+      "source": "fetch_vwap_dist",
+      "norm": "z-tanh",
+      "weight": 1.0,
+      "description": "Distance from VWAP"
+    },
+    {
+      "name": "ATRp",
+      "category": "technical",
+      "source": "fetch_atrp",
+      "norm": "bounded",
+      "weight": 1.0,
+      "description": "ATR percentage",
+      "bounds": {
+        "min": 0,
+        "max": 10,
+        "center": 2
+      }
+    },
+    {
+      "name": "BB_Width",
+      "category": "technical",
+      "source": "fetch_bb_width",
+      "norm": "bounded",
+      "weight": 1.0,
+      "description": "Bollinger Bands width",
+      "bounds": {
+        "min": 0,
+        "max": 5,
+        "center": 1
+      }
+    },
+    {
+      "name": "Vol_Delta",
+      "category": "technical",
+      "source": "fetch_vol_delta",
+      "norm": "z-tanh",
+      "weight": 1.0,
+      "description": "Volume delta"
+    },
+    {
+      "name": "Funding_Bias",
+      "category": "onchain",
+      "source": "fetch_funding_bias",
+      "norm": "bounded",
+      "weight": 1.0,
+      "description": "Funding rate bias",
+      "bounds": {
+        "min": -0.01,
+        "max": 0.01,
+        "center": 0
+      }
+    },
+    {
+      "name": "OI_Beta",
+      "category": "onchain",
+      "source": "fetch_oi_beta",
+      "norm": "z-tanh",
+      "weight": 1.0,
+      "description": "Open interest beta"
+    },
+    {
+      "name": "Session_Heat",
+      "category": "market",
+      "source": "fetch_session_heat",
+      "norm": "bounded",
+      "weight": 1.0,
+      "description": "Session activity heat",
+      "bounds": {
+        "min": 0,
+        "max": 1,
+        "center": 0.5
+      }
+    },
+    {
+      "name": "Event_Cooldown",
+      "category": "market",
+      "source": "fetch_event_cooldown",
+      "norm": "bounded",
+      "weight": 1.0,
+      "description": "Event cooldown timer",
+      "bounds": {
+        "min": 0,
+        "max": 24,
+        "center": 12
+      }
+    },
+    {
+      "name": "Spread_Normalized",
+      "category": "market",
+      "source": "fetch_spread_normalized",
+      "norm": "bounded",
+      "weight": 1.0,
+      "description": "Normalized bid-ask spread",
+      "bounds": {
+        "min": 0,
+        "max": 0.001,
+        "center": 0.0001
+      }
+    }
+  ],
+  "version": "1.0.0",
+  "total_signals": 12
+}
+

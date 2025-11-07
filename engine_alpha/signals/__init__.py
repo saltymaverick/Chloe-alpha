@@ -1,1 +1,2 @@
-# init
+"""Signal processing components."""
+
