@@ -1,11 +1,12 @@
 {
-  "ts": "2025-11-07T18:30:17.534558+00:00",
+  "ts": "2025-11-07T19:16:04.753771+00:00",
   "binance": {
+    "enabled": true,
     "time": {
       "exchange": "binance",
       "host": "https://api.binance.us",
-      "latency_ms": 43,
-      "clock_skew_ms": 3,
+      "latency_ms": 72,
+      "clock_skew_ms": 4,
       "ok": true
     },
     "symbols": {
@@ -14,12 +15,12 @@
         "ETHUSDT": {
           "ok": true,
           "host": "https://api.binance.us",
-          "latency_ms": 51
+          "latency_ms": 53
         },
         "BTCUSDT": {
           "ok": true,
           "host": "https://api.binance.us",
-          "latency_ms": 51
+          "latency_ms": 54
         }
       }
     },
@@ -29,27 +30,9 @@
     }
   },
   "bybit": {
-    "time": {
-      "exchange": "bybit",
-      "ok": false,
-      "error": "HTTP Error 403: Forbidden"
-    },
-    "symbols": {
-      "exchange": "bybit",
-      "symbols": {
-        "ETHUSDT": {
-          "ok": false,
-          "error": "HTTP Error 403: Forbidden"
-        },
-        "BTCUSDT": {
-          "ok": false,
-          "error": "HTTP Error 403: Forbidden"
-        }
-      }
-    },
-    "account": {
-      "ok": false,
-      "reason": "no_keys"
-    }
+    "enabled": false
+  },
+  "okx": {
+    "enabled": false
   }
 }

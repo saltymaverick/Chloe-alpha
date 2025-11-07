@@ -9,17 +9,26 @@ import hashlib
 import hmac
 import json
 import os
+from dotenv import load_dotenv
+from pathlib import Path
+load_dotenv(dotenv_path=Path(__file__).resolve().parents[2]/'.env')
+
 import time
 from datetime import datetime, timezone
 from typing import Dict, Any, List, Optional
-from urllib import error, parse, request
+from urllib import parse, request
 
 from engine_alpha.core.paths import REPORTS
 
 BINANCE_HOSTS = ["https://api.binance.us", "https://api.binance.com"]
 BYBIT_HOSTS = ["https://api.bybit.com", "https://api.bybit.global"]
+OKX_HOSTS = ["https://www.okx.com"]
 DEFAULT_HEADERS = {"User-Agent": "ChloeAlpha/1.0 (+health)"}
 DEFAULT_TIMEOUT = 3.0
+
+FEED_BINANCE_ENABLED = os.getenv("FEED_BINANCE_ENABLED", "true").lower() == "true"
+FEED_BYBIT_ENABLED = os.getenv("FEED_BYBIT_ENABLED", "true").lower() == "true"
+FEED_OKX_ENABLED = os.getenv("FEED_OKX_ENABLED", "false").lower() == "true"
 
 
 def _utc_now_ms() -> int:
@@ -48,8 +57,19 @@ def _get_json(url: str, timeout: float = DEFAULT_TIMEOUT) -> Dict[str, Any]:
 
 
 def check_time(exchange: str) -> Dict[str, Any]:
-    hosts = BINANCE_HOSTS if exchange.lower() == "binance" else BYBIT_HOSTS
-    endpoint = "/api/v3/time" if exchange.lower() == "binance" else "/v5/market/time"
+    exchange_lower = exchange.lower()
+    if exchange_lower == "binance":
+        hosts = BINANCE_HOSTS
+        endpoint = "/api/v3/time"
+    elif exchange_lower == "bybit":
+        hosts = BYBIT_HOSTS
+        endpoint = "/v5/market/time"
+    elif exchange_lower == "okx":
+        hosts = OKX_HOSTS
+        endpoint = "/api/v5/public/time"
+    else:
+        return {"exchange": exchange, "ok": False, "error": "unsupported_exchange"}
+
     last_error = ""
     for host in hosts:
         url = f"{host}{endpoint}"
@@ -58,14 +78,18 @@ def check_time(exchange: str) -> Dict[str, Any]:
             body = resp["body"]
             latency = resp["latency_ms"]
             server_ms: Optional[int] = None
-            if exchange.lower() == "binance":
+            if exchange_lower == "binance":
                 server_ms = int(body.get("serverTime")) if body.get("serverTime") else None
-            else:
+            elif exchange_lower == "bybit":
                 result = body.get("result", {})
                 if "timeSecond" in result:
                     server_ms = int(result["timeSecond"]) * 1000
                 elif "time" in body:
                     server_ms = int(body["time"]) * 1000
+            else:  # OKX
+                data = body.get("data", [])
+                if data and "ts" in data[0]:
+                    server_ms = int(data[0]["ts"])
             if server_ms is None:
                 return {
                     "exchange": exchange,
@@ -81,28 +105,48 @@ def check_time(exchange: str) -> Dict[str, Any]:
                 "clock_skew_ms": int(skew),
                 "ok": True,
             }
-        except Exception as exc:  # pragma: no cover - network errors
+        except Exception as exc:  # pragma: no cover
             last_error = str(exc)
     return {"exchange": exchange, "ok": False, "error": last_error or "unreachable"}
 
 
+def _okx_symbol(symbol: str) -> str:
+    mapping = {"ETHUSDT": "ETH-USDT", "BTCUSDT": "BTC-USDT"}
+    return mapping.get(symbol, symbol.replace("USDT", "-USDT"))
+
+
 def check_symbols(exchange: str, symbols: List[str]) -> Dict[str, Any]:
-    hosts = BINANCE_HOSTS if exchange.lower() == "binance" else BYBIT_HOSTS
+    exchange_lower = exchange.lower()
+    if exchange_lower == "binance":
+        hosts = BINANCE_HOSTS
+    elif exchange_lower == "bybit":
+        hosts = BYBIT_HOSTS
+    elif exchange_lower == "okx":
+        hosts = OKX_HOSTS
+    else:
+        return {"exchange": exchange, "symbols": {}, "error": "unsupported_exchange"}
+
     result = {"exchange": exchange, "symbols": {}}
     for symbol in symbols:
         entry = {"ok": False}
         last_error = ""
         for host in hosts:
             try:
-                if exchange.lower() == "binance":
+                if exchange_lower == "binance":
                     url = f"{host}/api/v3/ticker/price?symbol={symbol}"
-                else:
+                elif exchange_lower == "bybit":
                     params = parse.urlencode({"category": "linear", "symbol": symbol})
                     url = f"{host}/v5/market/tickers?{params}"
+                else:  # OKX
+                    inst_id = _okx_symbol(symbol)
+                    url = f"{host}/api/v5/market/ticker?instId={inst_id}"
                 resp = _get_json(url)
                 body = resp["body"]
-                if exchange.lower() == "bybit":
+                if exchange_lower == "bybit":
                     if not body.get("result", {}).get("list"):
+                        raise RuntimeError("empty_result")
+                elif exchange_lower == "okx":
+                    if not body.get("data"):
                         raise RuntimeError("empty_result")
                 entry = {
                     "ok": True,
@@ -170,25 +214,43 @@ def check_account(exchange: str) -> Dict[str, Any]:
     exchange_lower = exchange.lower()
     if exchange_lower == "binance":
         return _binance_account(BINANCE_HOSTS[0])
-    if exchange_lower == "bybit":
+    elif exchange_lower == "bybit":
         return _bybit_account(BYBIT_HOSTS[0])
-    return {"ok": False, "reason": "unsupported_exchange", "exchange": exchange}
+    elif exchange_lower == "okx":
+        return {"exchange": exchange, "ok": False, "reason": "no_keys"}
+    return {"exchange": exchange, "ok": False, "reason": "unsupported_exchange"}
 
 
 def run_health(symbols: List[str]) -> Dict[str, Any]:
-    payload = {
-        "ts": _iso_now(),
-        "binance": {
+    payload = {"ts": _iso_now()}
+    if FEED_BINANCE_ENABLED:
+        payload["binance"] = {
+            "enabled": True,
             "time": check_time("binance"),
             "symbols": check_symbols("binance", symbols),
             "account": check_account("binance"),
-        },
-        "bybit": {
+        }
+    else:
+        payload["binance"] = {"enabled": False}
+    if FEED_BYBIT_ENABLED:
+        payload["bybit"] = {
+            "enabled": True,
             "time": check_time("bybit"),
             "symbols": check_symbols("bybit", symbols),
             "account": check_account("bybit"),
-        },
-    }
+        }
+    else:
+        payload["bybit"] = {"enabled": False}
+    if FEED_OKX_ENABLED:
+        payload["okx"] = {
+            "enabled": True,
+            "time": check_time("okx"),
+            "symbols": check_symbols("okx", symbols),
+            "account": check_account("okx"),
+        }
+    else:
+        payload["okx"] = {"enabled": False}
+
     report_path = REPORTS / "feeds_health.json"
     report_path.parent.mkdir(parents=True, exist_ok=True)
     with report_path.open("w") as f:
