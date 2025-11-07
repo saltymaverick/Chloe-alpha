@@ -1,0 +1,15 @@
+symbols:
+  - ETHUSDT
+  - BTCUSDT
+  - SOLUSDT
+correlation:
+  ETHUSDT:
+    BTCUSDT: 0.85
+    SOLUSDT: 0.65
+  BTCUSDT:
+    ETHUSDT: 0.85
+    SOLUSDT: 0.55
+  SOLUSDT:
+    ETHUSDT: 0.65
+    BTCUSDT: 0.55
+correlation_threshold: 0.75
