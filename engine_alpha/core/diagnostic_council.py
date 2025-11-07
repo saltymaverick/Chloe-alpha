@@ -1,3 +1,4 @@
+from engine_alpha.core.paths import REPORTS
 #!/usr/bin/env python3
 """
 Council diagnostic script - Phase 2
