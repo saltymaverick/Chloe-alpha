@@ -1,0 +1,6 @@
+{"ts": "2025-11-07T19:43:39.879216+00:00", "regime": "trend", "baseline": 0.58, "delta": 0.0, "new_gate": 0.58}
+{"ts": "2025-11-07T19:43:39.879261+00:00", "regime": "chop", "baseline": 0.64, "delta": 0.0, "new_gate": 0.64}
+{"ts": "2025-11-07T19:43:39.879266+00:00", "regime": "high_vol", "baseline": 0.62, "delta": 0.0, "new_gate": 0.62}
+{"ts": "2025-11-07T19:45:35.663421+00:00", "regime": "trend", "baseline": 0.58, "delta": 0.0, "new_gate": 0.58}
+{"ts": "2025-11-07T19:45:35.663479+00:00", "regime": "chop", "baseline": 0.64, "delta": 0.0, "new_gate": 0.64}
+{"ts": "2025-11-07T19:45:35.663485+00:00", "regime": "high_vol", "baseline": 0.62, "delta": 0.0, "new_gate": 0.62}

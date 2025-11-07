@@ -1,0 +1,5 @@
+entry_exit:
+  entry_min_conf:
+    chop: 0.64
+    high_vol: 0.62
+    trend: 0.58

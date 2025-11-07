@@ -19,6 +19,9 @@ import yaml
 
 from engine_alpha.core.paths import REPORTS, CONFIG
 
+MIN_GATE = 0.40
+MAX_GATE = 0.80
+
 SUMMARY_NAME = "acceptance_summary.json"
 MAX_CLOCK_SKEW_MS = 500
 MAX_MEDIAN_LATENCY_MS = 300
@@ -233,6 +236,9 @@ def _section_accounting() -> Dict[str, Any]:
         "pf_adj_local": pf_local_val,
         "points": lines,
         "fresh_hours": None,
+        "curve_ok": curve_ok,
+        "pf_ok": pf_ok,
+        "fresh": fresh,
     }
     if ts:
         try:
@@ -241,11 +247,36 @@ def _section_accounting() -> Dict[str, Any]:
             details["fresh_hours"] = round(delta.total_seconds() / 3600, 2)
         except Exception:
             details["fresh_hours"] = None
-    else:
-        details["fresh_hours"] = None
-
-    details.update({"curve_ok": curve_ok, "pf_ok": pf_ok, "fresh": fresh})
     return {"ok": ok, "details": details}
+
+
+def _section_confidence() -> Dict[str, Any]:
+    path = REPORTS / "confidence_tune.jsonl"
+    entries = _read_jsonl_tail(path, lines=3)
+    if not entries:
+        return {"ok": False, "details": {"error": "no_confidence_entries"}}
+    ok = True
+    detail_list = []
+    for entry in entries:
+        regime = entry.get("regime")
+        delta = entry.get("delta")
+        new_gate = entry.get("new_gate")
+        baseline = entry.get("baseline")
+        valid = (
+            isinstance(delta, (int, float))
+            and isinstance(new_gate, (int, float))
+            and abs(delta) <= 0.10
+            and MIN_GATE <= new_gate <= MAX_GATE
+        )
+        ok = ok and valid
+        detail_list.append({
+            "regime": regime,
+            "baseline": baseline,
+            "delta": delta,
+            "new_gate": new_gate,
+            "valid": valid,
+        })
+    return {"ok": ok, "details": detail_list}
 
 
 def main() -> int:
@@ -257,6 +288,7 @@ def main() -> int:
         "mirror": _section_mirror(),
         "ops": _section_ops(),
         "accounting": _section_accounting(),
+        "confidence": _section_confidence(),
     }
     overall = all(section.get("ok") for section in sections.values())
     summary = {"ts": _iso_now(), "PASS": overall, "sections": sections}
