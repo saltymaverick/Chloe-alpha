@@ -13,6 +13,12 @@ import streamlit as st
 
 from engine_alpha.core.paths import REPORTS, LOGS
 
+from datetime import datetime, timezone
+
+def _now() -> str:
+    """Return ISO8601 UTC timestamp, e.g. 2025-11-07T16:25:00Z"""
+    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
 REFRESH_SECONDS = 10
 
 
@@ -151,7 +157,7 @@ def main():
     with tabs[3]:
         signals_tab()
 
-    st.experimental_set_query_params(ts=_now())
+    st.query_params(ts=_now())
     st.write("Last refresh:", _now())
 
 
