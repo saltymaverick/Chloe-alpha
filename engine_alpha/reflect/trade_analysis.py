@@ -1,98 +1,44 @@
-"""
-Trade analysis - Phase 3
-PF (Profit Factor) calculations from trades.
-"""
-
-import json
+from __future__ import annotations
+import json, math
 from pathlib import Path
-from typing import List, Dict, Any
+from typing import List, Dict
 
+# Project-root aware paths
+ROOT = Path(__file__).resolve().parents[2]
+REPORTS = ROOT / "reports"
+REPORTS.mkdir(parents=True, exist_ok=True)
 
-def pf_from_trades(trades: List[Dict[str, Any]]) -> float:
-    """
-    Calculate profit factor from trades.
-    PF = (sum of positive pct) / (abs sum of negative pct)
-    
-    Args:
-        trades: List of trade dictionaries
-    
-    Returns:
-        Profit factor (handle 0-loss edge case)
-    """
-    if not trades:
-        return 1.0
-    
-    positive_sum = 0.0
-    negative_sum = 0.0
-    
-    for trade in trades:
-        pnl_pct = trade.get("pnl_pct", 0.0)
-        if pnl_pct > 0:
-            positive_sum += pnl_pct
-        elif pnl_pct < 0:
-            negative_sum += abs(pnl_pct)
-    
-    # Handle edge case: no losses
-    if negative_sum == 0:
-        if positive_sum > 0:
-            return 999.0  # Use large number instead of inf for JSON compatibility
-        else:
-            return 1.0  # No wins or losses
-    
-    return positive_sum / negative_sum
+def pf_from_trades(trades: List[Dict]) -> float:
+    wins = sum(float(t.get("pct", 0.0)) for t in trades if float(t.get("pct", 0.0)) > 0)
+    losses = -sum(float(t.get("pct", 0.0)) for t in trades if float(t.get("pct", 0.0)) < 0)
+    if losses <= 0:
+        return float("inf") if wins > 0 else 0.0
+    return wins / losses
 
-
-def update_pf_reports(trades_path: Path, out_pf_local: Path, out_pf_live: Path, 
-                      window: int = 150) -> None:
-    """
-    Read trades.jsonl, compute PF_local and PF_live, write JSON files.
-    
-    Args:
-        trades_path: Path to trades.jsonl
-        out_pf_local: Path to output pf_local.json
-        out_pf_live: Path to output pf_live.json
-        window: Window size for PF_local calculation (default: 150)
-    """
-    # Read trades
-    trades = []
+def _read_trades(trades_path: Path) -> List[Dict]:
+    out = []
     if trades_path.exists():
-        with open(trades_path, "r") as f:
-            for line in f:
-                line = line.strip()
-                if line:
-                    try:
-                        trade = json.loads(line)
-                        trades.append(trade)
-                    except json.JSONDecodeError:
-                        continue
-    
-    # Filter for CLOSE events only (these have P&L)
-    close_trades = [t for t in trades if t.get("event") == "CLOSE"]
-    
-    # Calculate PF_live (all trades)
-    pf_live = pf_from_trades(close_trades)
-    
-    # Calculate PF_local (last N trades)
-    pf_local_trades = close_trades[-window:] if len(close_trades) > window else close_trades
-    pf_local = pf_from_trades(pf_local_trades)
-    
-    # Write PF_live
-    pf_live_data = {
-        "pf": pf_live,
-        "total_trades": len(close_trades),
-        "window": len(close_trades),
-    }
-    out_pf_live.parent.mkdir(parents=True, exist_ok=True)
-    with open(out_pf_live, "w") as f:
-        json.dump(pf_live_data, f, indent=2)
-    
-    # Write PF_local
-    pf_local_data = {
-        "pf": pf_local,
-        "total_trades": len(pf_local_trades),
-        "window": window,
-    }
-    out_pf_local.parent.mkdir(parents=True, exist_ok=True)
-    with open(out_pf_local, "w") as f:
-        json.dump(pf_local_data, f, indent=2)
+        for line in trades_path.read_text().splitlines():
+            line = line.strip()
+            if not line: continue
+            try:
+                out.append(json.loads(line))
+            except Exception:
+                pass
+    return out
 
+def update_pf_reports(trades_path: Path, out_pf_local: Path, out_pf_live: Path, window: int = 150) -> None:
+    trades = _read_trades(trades_path)
+    # live: all trades; local: last N
+    pf_live = pf_from_trades(trades) if trades else 0.0
+    pf_local = pf_from_trades(trades[-window:]) if trades else 0.0
+
+    out_pf_live.write_text(json.dumps({"pf": pf_live, "count": len(trades)}, indent=2))
+    out_pf_local.write_text(json.dumps({"pf": pf_local, "window": window, "count": min(len(trades), window)}, indent=2))
+
+def main():
+    trades_path = REPORTS / "trades.jsonl"
+    update_pf_reports(trades_path, REPORTS / "pf_local.json", REPORTS / "pf_live.json")
+
+if __name__ == "__main__":
+    main()

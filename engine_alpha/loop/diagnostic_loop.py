@@ -1,77 +1,72 @@
-#!/usr/bin/env python3
-"""
-Loop diagnostic script - Phase 3
-Tests trading loop execution.
-"""
-
-import json
-import sys
+from __future__ import annotations
+import json, time
 from pathlib import Path
 
-# Add /root to path for imports
-sys.path.insert(0, str(Path(__file__).parent.parent.parent))
+from engine_alpha.signals.signal_processor import get_signal_vector
+from engine_alpha.core.confidence_engine import decide
+from engine_alpha.reflect.trade_analysis import update_pf_reports
 
-from engine_alpha.loop.autonomous_trader import AutonomousTrader
-from engine_alpha.loop.position_manager import get_position_manager
+ROOT = Path(__file__).resolve().parents[2]
+REPORTS = ROOT / "reports"
+REPORTS.mkdir(parents=True, exist_ok=True)
 
+# Minimal in-memory position & logging (paper)
+_position = {"dir": 0, "entry_px": None, "bars_open": 0}
+_stats = {"opens": 0, "closes": 0, "reversals": 0}
 
-def main():
-    """Run diagnostic checks on trading loop."""
-    print("Alpha Chloe - Loop Diagnostic (Phase 3)")
-    print("=" * 50)
-    
-    try:
-        # Reset position manager
-        position_manager = get_position_manager()
-        position_manager.clear_position()
-        
-        # Create trader
-        trader = AutonomousTrader(symbol="ETHUSDT", timeframe="1h")
-        
-        # Run batch
-        print("\nRunning batch of 25 steps...")
-        summary = trader.run_batch(n=25)
-        
-        # Print results
-        print(f"\nSummary:")
-        print(f"  Steps: {summary['steps']}")
-        print(f"  Opens: {summary['opens']}")
-        print(f"  Closes: {summary['closes']}")
-        print(f"  Reversals: {summary['reversals']}")
-        print(f"  PF_local: {summary['pf_local']:.4f}")
-        print(f"  PF_live: {summary['pf_live']:.4f}")
-        
-        # Get final position
-        final_position = position_manager.get_open_position()
-        print(f"\nFinal position: {final_position['direction']}")
-        if final_position['direction'] != "FLAT":
-            print(f"  Entry price: {final_position['entry_price']:.2f}")
-            print(f"  Bars open: {final_position['bars_open']}")
-        
-        # Write loop health report
-        from datetime import datetime, timezone
-        health_data = {
-            "timestamp": datetime.now(timezone.utc).isoformat(),
-            "summary": summary,
-            "final_position": final_position,
-        }
-        
-        health_path = Path("/reports/loop_health.json")
-        health_path.parent.mkdir(parents=True, exist_ok=True)
-        with open(health_path, "w") as f:
-            json.dump(health_data, f, indent=2)
-        
-        print(f"\n✅ Loop health written to: {health_path}")
-        print("\n✅ Diagnostic complete")
-        return 0
-        
-    except Exception as e:
-        print(f"\n❌ Error: {e}")
-        import traceback
-        traceback.print_exc()
-        return 1
+def _append_trade(event: dict):
+    path = REPORTS / "trades.jsonl"
+    with path.open("a") as f:
+        f.write(json.dumps(event) + "\n")
 
+def run_step():
+    out = get_signal_vector()
+    decision = decide(out["signal_vector"], out["raw_registry"])
+    final = decision["final"]
+    now = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+
+    global _position, _stats
+    prev_dir = _position["dir"]
+    new_dir = final["dir"]
+
+    # entry logic (paper, size=1)
+    if prev_dir == 0 and new_dir != 0 and final["conf"] >= 0.5:
+        _position = {"dir": new_dir, "entry_px": 1.0, "bars_open": 0}
+        _stats["opens"] += 1
+        _append_trade({"ts": now, "type": "open", "dir": new_dir, "pct": 0.0})
+
+    # exit/flip logic (confidence drop or flip strong enough)
+    if _position["dir"] != 0:
+        _position["bars_open"] += 1
+        drop = final["conf"] < 0.42
+        flip = (new_dir != 0 and new_dir != _position["dir"] and final["conf"] >= 0.55)
+        decay = _position["bars_open"] > 8
+        if drop or flip or decay:
+            # simple P&L proxy: +conf when in same dir, -conf when against (demo only)
+            pnl = final["conf"] if new_dir == _position["dir"] else -final["conf"]
+            _append_trade({"ts": now, "type": "close", "dir": _position["dir"], "pct": pnl})
+            _stats["closes"] += 1
+            _position = {"dir": 0, "entry_px": None, "bars_open": 0}
+            if flip:
+                _stats["reversals"] += 1
+                # open opposite immediately (paper)
+                _position = {"dir": new_dir, "entry_px": 1.0, "bars_open": 0}
+                _stats["opens"] += 1
+                _append_trade({"ts": now, "type": "open", "dir": new_dir, "pct": 0.0})
+
+def run_batch(n=25):
+    for _ in range(n):
+        run_step()
 
 if __name__ == "__main__":
-    sys.exit(main())
-
+    run_batch(25)
+    # write loop health
+    (REPORTS / "loop_health.json").write_text(json.dumps({
+        "ts": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        "position": _position,
+        "stats": _stats
+    }, indent=2))
+    # update PF reports
+    update_pf_reports(REPORTS / "trades.jsonl", REPORTS / "pf_local.json", REPORTS / "pf_live.json")
+    print("✅ Loop health written to:", REPORTS / "loop_health.json")
+    print("✅ PF updated:", REPORTS / "pf_local.json", REPORTS / "pf_live.json")
