@@ -32,7 +32,7 @@ def _synthesize_fill_price(raw_registry: Dict[str, Any], base_price: float = 300
 
 
 def open_if_allowed(final_dir: int, final_conf: float, gates: Dict[str, float],
-                   raw_registry: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+                   raw_registry: Dict[str, Any], risk_mult: float = 1.0) -> Optional[Dict[str, Any]]:
     """
     Open position if conditions are met.
     
@@ -41,6 +41,7 @@ def open_if_allowed(final_dir: int, final_conf: float, gates: Dict[str, float],
         final_conf: Final confidence [0, 1]
         gates: Gates configuration with entry_min_conf
         raw_registry: Raw signal registry
+        risk_mult: Risk multiplier (paper only; logged)
     
     Returns:
         Trade event dictionary if opened, None otherwise
@@ -80,6 +81,7 @@ def open_if_allowed(final_dir: int, final_conf: float, gates: Dict[str, float],
         "size": position_manager.size,
         "ts": open_ts,
         "conf": final_conf,
+        "risk_mult": float(risk_mult),
     }
 
 
