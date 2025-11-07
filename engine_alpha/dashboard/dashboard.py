@@ -157,7 +157,7 @@ def main():
     with tabs[3]:
         signals_tab()
 
-    st.query_params(ts=_now())
+    st.query_params = {"ts": _now()}
     st.write("Last refresh:", _now())
 
 
