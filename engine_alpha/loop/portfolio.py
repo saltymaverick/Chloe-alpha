@@ -72,7 +72,9 @@ def run_portfolio(steps: int = 60) -> Dict[str, Any]:
     assets = _load_assets()
     symbols = assets.get("symbols", [])
     corr_map = assets.get("correlation", {})
-    threshold = float(assets.get("correlation_threshold", 0.75))
+    guard = assets.get("guard", {})
+    corr_threshold = float(guard.get("corr_threshold", 0.80))
+    exposure_cap = int(guard.get("net_exposure_cap", 2))
 
     classifier = RegimeClassifier()
 
@@ -81,6 +83,7 @@ def run_portfolio(steps: int = 60) -> Dict[str, Any]:
     opens = {s: 0 for s in symbols}
     closes = {s: 0 for s in symbols}
     corr_blocks = 0
+    exposure_blocks = 0
 
     for _ in range(steps):
         for symbol in symbols:
@@ -94,11 +97,22 @@ def run_portfolio(steps: int = 60) -> Dict[str, Any]:
 
             if state["dir"] == 0:
                 if dir_ != 0 and conf >= gates["entry_min_conf"]:
+                    net_dir = sum(
+                        1 if s["dir"] > 0 else -1
+                        for s in states.values()
+                        if s["dir"] != 0
+                    )
+                    if dir_ > 0 and net_dir >= exposure_cap:
+                        exposure_blocks += 1
+                        continue
+                    if dir_ < 0 and net_dir <= -exposure_cap:
+                        exposure_blocks += 1
+                        continue
                     blocked = False
                     for other_symbol, other_state in states.items():
                         if other_symbol == symbol:
                             continue
-                        if other_state["dir"] == dir_ and _correlation(symbol, other_symbol, corr_map) >= threshold:
+                        if other_state["dir"] == dir_ and _correlation(symbol, other_symbol, corr_map) >= corr_threshold:
                             blocked = True
                             corr_blocks += 1
                             break
@@ -127,29 +141,41 @@ def run_portfolio(steps: int = 60) -> Dict[str, Any]:
                     closes[symbol] += 1
                     _maybe_close(symbol, state, conf, trades_per_symbol[symbol])
                     if flip_possible:
+                        net_dir = sum(
+                            1 if s["dir"] > 0 else -1
+                            for s in states.values()
+                            if s["dir"] != 0
+                        )
+                        if dir_ > 0 and net_dir >= exposure_cap:
+                            exposure_blocks += 1
+                            continue
+                        if dir_ < 0 and net_dir <= -exposure_cap:
+                            exposure_blocks += 1
+                            continue
                         blocked = False
                         for other_symbol, other_state in states.items():
                             if other_symbol == symbol:
                                 continue
-                            if other_state["dir"] == dir_ and _correlation(symbol, other_symbol, corr_map) >= threshold:
+                            if other_state["dir"] == dir_ and _correlation(symbol, other_symbol, corr_map) >= corr_threshold:
                                 blocked = True
                                 corr_blocks += 1
                                 break
-                        if not blocked:
-                            state["dir"] = dir_
-                            state["bars_open"] = 0
-                            opens[symbol] += 1
-                            _log_trade(
-                                symbol,
-                                {
-                                    "ts": _now(),
-                                    "event": "OPEN",
-                                    "symbol": symbol,
-                                    "dir": dir_,
-                                    "conf": conf,
-                                    "reason": "flip",
-                                },
-                            )
+                        if blocked:
+                            continue
+                        state["dir"] = dir_
+                        state["bars_open"] = 0
+                        opens[symbol] += 1
+                        _log_trade(
+                            symbol,
+                            {
+                                "ts": _now(),
+                                "event": "OPEN",
+                                "symbol": symbol,
+                                "dir": dir_,
+                                "conf": conf,
+                                "reason": "flip",
+                            },
+                        )
 
     summary = {}
     all_trades: List[Dict[str, float]] = []
@@ -169,9 +195,9 @@ def run_portfolio(steps: int = 60) -> Dict[str, Any]:
         json.dump(
             {
                 "ts": _now(),
-                "portfolio_pf": portfolio_pf,
                 "open_positions": {s: states[s]["dir"] for s in symbols},
-                "correlation_blocks": corr_blocks,
+                "corr_blocks": corr_blocks,
+                "exposure_blocks": exposure_blocks,
             },
             f,
             indent=2,

@@ -1,0 +1,77 @@
+{
+  "ts": "2025-11-07T19:14:48.149895+00:00",
+  "PASS": true,
+  "sections": {
+    "feeds": {
+      "ok": true,
+      "details": {
+        "binance": {
+          "enabled": true,
+          "ok": true,
+          "clock_skew_ms": 4,
+          "median_latency_ms": 38.5,
+          "time_ok": true,
+          "latency_ok": true
+        },
+        "bybit": {
+          "enabled": true,
+          "ok": false,
+          "clock_skew_ms": null,
+          "median_latency_ms": null,
+          "time_ok": false,
+          "latency_ok": false
+        },
+        "okx": {
+          "enabled": false,
+          "ok": false
+        }
+      }
+    },
+    "pf_pa": {
+      "ok": true,
+      "details": {
+        "pf_local": 1.2905497785858384,
+        "pf_live": 1.2905497785858384,
+        "armed": true,
+        "count": 55,
+        "gate_consistent": true
+      }
+    },
+    "portfolio": {
+      "ok": true,
+      "details": {
+        "portfolio_pf": 1.0484292443437306,
+        "corr_blocks": 5,
+        "exposure_blocks": 0,
+        "net_exposure": -1,
+        "cap": 2,
+        "exposure_ok": true,
+        "blocks_ok": true
+      }
+    },
+    "dream": {
+      "ok": true,
+      "details": {
+        "ts": "2025-11-07T19:08:02.875914+00:00",
+        "fresh": true,
+        "proposal_present": true
+      }
+    },
+    "mirror": {
+      "ok": true,
+      "details": {
+        "ts": "2025-11-07T16:03:29.275577+00:00"
+      }
+    },
+    "ops": {
+      "ok": true,
+      "details": {
+        "ts": "2025-11-07T19:14:48.142435+00:00",
+        "pf_ok": true,
+        "trades_ok": true,
+        "dream_ok": true,
+        "notes": "ok"
+      }
+    }
+  }
+}
