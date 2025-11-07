@@ -290,6 +290,32 @@ def _section_promotion() -> Dict[str, Any]:
     return {"ok": ok, "details": entry}
 
 
+def _section_council() -> Dict[str, Any]:
+    weights = _read_json(REPORTS / "council_weights.json")
+    if not weights:
+        return {"ok": False, "details": {"error": "weights_missing"}}
+    proposed = weights.get("proposed", {})
+    delta = weights.get("delta", {})
+    ok = True
+    details = {}
+    for regime, buckets in proposed.items():
+        regime_ok = True
+        total = sum(buckets.values()) if isinstance(buckets, dict) else None
+        if total is None or abs(total - 1.0) > 1e-6:
+            regime_ok = False
+        bucket_details = {}
+        for bucket, value in buckets.items():
+            if not isinstance(value, (int, float)) or not 0.0 <= value <= 1.0:
+                regime_ok = False
+            delta_val = delta.get(regime, {}).get(bucket, 0.0)
+            if abs(delta_val) > 0.10:
+                regime_ok = False
+            bucket_details[bucket] = {"weight": value, "delta": delta_val}
+        details[regime] = {"sum": total, "buckets": bucket_details, "valid": regime_ok}
+        ok = ok and regime_ok
+    return {"ok": ok, "details": details}
+
+
 def _section_sandbox() -> Dict[str, Any]:
     status_path = REPORTS / "sandbox" / "sandbox_status.json"
     runs_path = REPORTS / "sandbox" / "sandbox_runs.jsonl"
@@ -325,6 +351,7 @@ def main() -> int:
         "confidence": _section_confidence(),
         "promotion": _section_promotion(),
         "sandbox": _section_sandbox(),
+        "council": _section_council(),
     }
     overall = all(section.get("ok") for section in sections.values())
     summary = {"ts": _iso_now(), "PASS": overall, "sections": sections}
