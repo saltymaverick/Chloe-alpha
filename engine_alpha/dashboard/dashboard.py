@@ -246,13 +246,75 @@ def feeds_tab():
         st.code(ops_tail)
 
 
+def sandbox_tab():
+    st.header("Sandbox")
+    runs_path = REPORTS / "sandbox" / "sandbox_runs.jsonl"
+    status_path = REPORTS / "sandbox" / "sandbox_status.json"
+
+    if not runs_path.exists() and not status_path.exists():
+        st.info("No sandbox data yet")
+        return
+
+    runs = load_jsonl_tail(runs_path, lines=5)
+    if runs:
+        df = pd.DataFrame(runs)
+        df = df[[col for col in ["id", "child", "pf_adj", "state", "ts"] if col in df.columns]]
+        if not df.empty:
+            def highlight(row):
+                val = row.get("pf_adj")
+                if not isinstance(val, (int, float)):
+                    return [""] * len(row)
+                if val >= 1.0:
+                    color = "background-color: rgba(0,200,0,0.2)"
+                elif val >= 0.8:
+                    color = "background-color: rgba(255,200,0,0.2)"
+                else:
+                    color = "background-color: rgba(255,0,0,0.2)"
+                return [color] * len(row)
+            st.dataframe(df.style.apply(highlight, axis=1), use_container_width=True)
+    else:
+        st.write("No sandbox runs yet")
+
+    status = load_json(status_path)
+    if status:
+        st.subheader("Status")
+        st.json(status)
+
+    if runs:
+        last_id = runs[-1].get("id")
+        if last_id:
+            trades_path = REPORTS / "sandbox" / last_id / "trades.jsonl"
+            trades_tail = safe_text(trades_path, lines=3)
+            if trades_tail:
+                with st.expander("Last run trades tail"):
+                    st.code(trades_tail)
+
+    if st.button("Run Sandbox Cycle"):
+        with st.spinner("Running sandbox cycle..."):
+            try:
+                proc = subprocess.run(
+                    ["python3", "-m", "engine_alpha.evolve.diagnostic_sandbox", "--steps", "150", "--max-new", "1"],
+                    capture_output=True,
+                    text=True,
+                    timeout=60,
+                )
+                output = proc.stdout.strip() or proc.stderr.strip() or "No output captured"
+                with st.expander("Sandbox Output"):
+                    st.code(output)
+            except subprocess.TimeoutExpired:
+                st.error("Sandbox cycle timed out")
+            except Exception as exc:
+                st.error(f"Sandbox cycle failed: {exc}")
+            st.rerun()
+
+
 def main():
     st.set_page_config(page_title="Alpha Chloe Dashboard", layout="wide")
     refresh_choice = st.sidebar.selectbox("Auto-refresh", list(REFRESH_OPTIONS.keys()), index=1)
     st.title("Alpha Chloe Dashboard")
     st.caption("Read-only metrics with health analytics")
 
-    tabs = st.tabs(["Overview", "Portfolio", "Intelligence", "Feeds/Health"])
+    tabs = st.tabs(["Overview", "Portfolio", "Intelligence", "Feeds/Health", "Sandbox"])
     with tabs[0]:
         overview_tab()
     with tabs[1]:
@@ -261,6 +323,8 @@ def main():
         intelligence_tab()
     with tabs[3]:
         feeds_tab()
+    with tabs[4]:
+        sandbox_tab()
 
     st.write("Last refresh:", _now())
     st.query_params = {"ts": _now()}
