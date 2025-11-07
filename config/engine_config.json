@@ -1,0 +1,16 @@
+{
+  "version": "alpha-1",
+  "mode": "PAPER",
+  "symbol": "ETHUSDT",
+  "timeframe": "1h",
+  "paths": {
+    "root": "/root/engine_alpha",
+    "reports": "/root/engine_alpha/reports",
+    "logs": "/root/engine_alpha/logs",
+    "data": "/root/engine_alpha/data"
+  },
+  "prime_directive": "Survive and profit — survival > risk control > profit",
+  "defaults": {
+    "risk_pct_per_trade_cap": 0.5
+  }
+}

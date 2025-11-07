@@ -1,0 +1,10 @@
+version: alpha-1
+risk:
+  single_trade_risk_pct: 0.5
+  ruin_floor_drawdown_pct: 15
+  loss_streak_brakes:
+    n: 7
+    safe_mode_at: 14
+fees_slippage:
+  taker_fee_pct: 0.06
+  slip_bps: 2
