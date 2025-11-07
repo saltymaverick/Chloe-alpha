@@ -8,3 +8,7 @@ risk:
 fees_slippage:
   taker_fee_pct: 0.06
   slip_bps: 2
+accounting:
+  start_equity: 10000.0
+  taker_fee_bps: 6
+  slip_bps: 2
