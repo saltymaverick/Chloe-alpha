@@ -290,6 +290,24 @@ def _section_promotion() -> Dict[str, Any]:
     return {"ok": ok, "details": entry}
 
 
+def _section_risk() -> Dict[str, Any]:
+    data = _read_json(REPORTS / "risk_adapter.json")
+    if not data:
+        return {"ok": False, "details": {"error": "missing"}}
+    mult = data.get("mult")
+    band = data.get("band")
+    reason = data.get("reason")
+    if reason == "no_equity_curve":
+        ok = float(mult or 1.0) == 1.0
+    else:
+        ok = (
+            isinstance(mult, (int, float))
+            and 0.5 <= float(mult) <= 1.25
+            and band in {"A", "B", "C"}
+        )
+    return {"ok": ok, "details": data}
+
+
 def _section_council() -> Dict[str, Any]:
     weights = _read_json(REPORTS / "council_weights.json")
     if not weights:
@@ -352,6 +370,7 @@ def main() -> int:
         "promotion": _section_promotion(),
         "sandbox": _section_sandbox(),
         "council": _section_council(),
+        "risk": _section_risk(),
     }
     overall = all(section.get("ok") for section in sections.values())
     summary = {"ts": _iso_now(), "PASS": overall, "sections": sections}
