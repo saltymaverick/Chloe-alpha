@@ -279,6 +279,17 @@ def _section_confidence() -> Dict[str, Any]:
     return {"ok": ok, "details": detail_list}
 
 
+def _section_promotion() -> Dict[str, Any]:
+    path = REPORTS / "promotion_proposals.jsonl"
+    tail = _read_jsonl_tail(path, 1)
+    if not tail:
+        return {"ok": False, "details": {"error": "no_proposals"}}
+    entry = tail[0]
+    recommendation = entry.get("recommendation")
+    ok = recommendation in {"PROMOTE", "HOLD"}
+    return {"ok": ok, "details": entry}
+
+
 def main() -> int:
     sections = {
         "feeds": _section_feeds(),
@@ -289,6 +300,7 @@ def main() -> int:
         "ops": _section_ops(),
         "accounting": _section_accounting(),
         "confidence": _section_confidence(),
+        "promotion": _section_promotion(),
     }
     overall = all(section.get("ok") for section in sections.values())
     summary = {"ts": _iso_now(), "PASS": overall, "sections": sections}
