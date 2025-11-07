@@ -1,14 +1,14 @@
 {
-  "armed": false,
-  "last_change_ts": "2025-11-07T09:17:47.750401+00:00",
-  "reason": "init",
-  "pf_local": 0.04670831993462881,
-  "pf_live": 0.04670831993462881,
-  "count": 51,
+  "armed": true,
+  "last_change_ts": "2025-11-07T09:42:38.423995+00:00",
+  "reason": "ARM_GATE_MET",
+  "pf_local": 1.8718599439946546,
+  "pf_live": 1.8718599439946546,
+  "count": 35,
   "gates_triplet": [
     0.08,
     0.05,
     180
   ],
-  "safe_mode": true
+  "safe_mode": false
 }

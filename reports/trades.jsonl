@@ -1,51 +1,35 @@
-{"ts": "2025-11-07T09:02:47Z", "type": "open", "dir": -1, "pct": 0.0}
-{"ts": "2025-11-07T09:02:47Z", "type": "close", "dir": -1, "pct": -0.06511744944243522}
-{"ts": "2025-11-07T09:02:47Z", "type": "open", "dir": 1, "pct": 0.0}
-{"ts": "2025-11-07T09:02:47Z", "type": "close", "dir": 1, "pct": -0.752635479579757}
-{"ts": "2025-11-07T09:02:47Z", "type": "open", "dir": -1, "pct": 0.0}
-{"ts": "2025-11-07T09:02:47Z", "type": "close", "dir": -1, "pct": 0.00019098202085854506}
-{"ts": "2025-11-07T09:02:47Z", "type": "open", "dir": 1, "pct": 0.0}
-{"ts": "2025-11-07T09:02:47Z", "type": "close", "dir": 1, "pct": 0.038004883415389816}
-{"ts": "2025-11-07T09:03:25Z", "type": "open", "dir": -1, "pct": 0.0}
-{"ts": "2025-11-07T09:03:25Z", "type": "close", "dir": -1, "pct": -0.06511744944243522}
-{"ts": "2025-11-07T09:03:25Z", "type": "open", "dir": 1, "pct": 0.0}
-{"ts": "2025-11-07T09:03:25Z", "type": "close", "dir": 1, "pct": -0.752635479579757}
-{"ts": "2025-11-07T09:03:25Z", "type": "open", "dir": -1, "pct": 0.0}
-{"ts": "2025-11-07T09:03:25Z", "type": "close", "dir": -1, "pct": 0.00019098202085854506}
-{"ts": "2025-11-07T09:03:25Z", "type": "open", "dir": 1, "pct": 0.0}
-{"ts": "2025-11-07T09:03:25Z", "type": "close", "dir": 1, "pct": 0.038004883415389816}
-{"event": "CLOSE", "direction": "SHORT", "entry_price": 3000.0, "exit_price": 2977.5720372323844, "size": 1.0, "pnl_pct": -0.007475987589205186, "bars_open": 1, "entry_ts": "2025-11-07T09:17:47.742972+00:00", "exit_ts": "2025-11-07T09:17:47.742972+00:00", "reason": "SEED"}
-{"event": "CLOSE", "direction": "LONG", "entry_price": 3000.0, "exit_price": 3009.675290391012, "size": 1.0, "pnl_pct": 0.0032250967970040025, "bars_open": 1, "entry_ts": "2025-11-07T09:17:47.742972+00:00", "exit_ts": "2025-11-07T09:17:47.742972+00:00", "reason": "SEED"}
-{"event": "CLOSE", "direction": "LONG", "entry_price": 3000.0, "exit_price": 3016.4257915959665, "size": 1.0, "pnl_pct": 0.005475263865322073, "bars_open": 1, "entry_ts": "2025-11-07T09:17:47.742972+00:00", "exit_ts": "2025-11-07T09:17:47.742972+00:00", "reason": "SEED"}
-{"event": "CLOSE", "direction": "SHORT", "entry_price": 3000.0, "exit_price": 2986.3125744988747, "size": 1.0, "pnl_pct": -0.004562475167041759, "bars_open": 1, "entry_ts": "2025-11-07T09:17:47.742972+00:00", "exit_ts": "2025-11-07T09:17:47.742972+00:00", "reason": "SEED"}
-{"event": "CLOSE", "direction": "LONG", "entry_price": 3000.0, "exit_price": 3028.8847227824285, "size": 1.0, "pnl_pct": 0.009628240927476111, "bars_open": 1, "entry_ts": "2025-11-07T09:17:47.742972+00:00", "exit_ts": "2025-11-07T09:17:47.742972+00:00", "reason": "SEED"}
-{"event": "CLOSE", "direction": "LONG", "entry_price": 3000.0, "exit_price": 3027.2708861604183, "size": 1.0, "pnl_pct": 0.009090295386806202, "bars_open": 1, "entry_ts": "2025-11-07T09:17:47.742972+00:00", "exit_ts": "2025-11-07T09:17:47.742972+00:00", "reason": "SEED"}
-{"event": "CLOSE", "direction": "SHORT", "entry_price": 3000.0, "exit_price": 2972.2642290781982, "size": 1.0, "pnl_pct": -0.009245256973933918, "bars_open": 1, "entry_ts": "2025-11-07T09:17:47.742972+00:00", "exit_ts": "2025-11-07T09:17:47.742972+00:00", "reason": "SEED"}
-{"event": "CLOSE", "direction": "LONG", "entry_price": 3000.0, "exit_price": 3011.3473484809942, "size": 1.0, "pnl_pct": 0.003782449493664745, "bars_open": 1, "entry_ts": "2025-11-07T09:17:47.742972+00:00", "exit_ts": "2025-11-07T09:17:47.742972+00:00", "reason": "SEED"}
-{"event": "CLOSE", "direction": "LONG", "entry_price": 3000.0, "exit_price": 3020.3918891315025, "size": 1.0, "pnl_pct": 0.006797296377167433, "bars_open": 1, "entry_ts": "2025-11-07T09:17:47.742972+00:00", "exit_ts": "2025-11-07T09:17:47.742972+00:00", "reason": "SEED"}
-{"event": "CLOSE", "direction": "SHORT", "entry_price": 3000.0, "exit_price": 2990.3742583918006, "size": 1.0, "pnl_pct": -0.0032085805360664924, "bars_open": 1, "entry_ts": "2025-11-07T09:17:47.742972+00:00", "exit_ts": "2025-11-07T09:17:47.742972+00:00", "reason": "SEED"}
-{"event": "CLOSE", "direction": "LONG", "entry_price": 3000.0, "exit_price": 3014.903225319697, "size": 1.0, "pnl_pct": 0.004967741773232431, "bars_open": 1, "entry_ts": "2025-11-07T09:17:47.742972+00:00", "exit_ts": "2025-11-07T09:17:47.742972+00:00", "reason": "SEED"}
-{"event": "CLOSE", "direction": "LONG", "entry_price": 3000.0, "exit_price": 3022.644592778791, "size": 1.0, "pnl_pct": 0.007548197592930262, "bars_open": 1, "entry_ts": "2025-11-07T09:17:47.742972+00:00", "exit_ts": "2025-11-07T09:17:47.742972+00:00", "reason": "SEED"}
-{"event": "CLOSE", "direction": "SHORT", "entry_price": 3000.0, "exit_price": 2990.442744636639, "size": 1.0, "pnl_pct": -0.003185751787787045, "bars_open": 1, "entry_ts": "2025-11-07T09:17:47.742972+00:00", "exit_ts": "2025-11-07T09:17:47.742972+00:00", "reason": "SEED"}
-{"event": "CLOSE", "direction": "LONG", "entry_price": 3000.0, "exit_price": 3014.3686165685394, "size": 1.0, "pnl_pct": 0.004789538856179836, "bars_open": 1, "entry_ts": "2025-11-07T09:17:47.742972+00:00", "exit_ts": "2025-11-07T09:17:47.742972+00:00", "reason": "SEED"}
-{"event": "CLOSE", "direction": "LONG", "entry_price": 3000.0, "exit_price": 3026.546879820047, "size": 1.0, "pnl_pct": 0.008848959940015708, "bars_open": 1, "entry_ts": "2025-11-07T09:17:47.742972+00:00", "exit_ts": "2025-11-07T09:17:47.742972+00:00", "reason": "SEED"}
-{"event": "CLOSE", "direction": "SHORT", "entry_price": 3000.0, "exit_price": 2979.5562289073323, "size": 1.0, "pnl_pct": -0.006814590364222517, "bars_open": 1, "entry_ts": "2025-11-07T09:17:47.742972+00:00", "exit_ts": "2025-11-07T09:17:47.742972+00:00", "reason": "SEED"}
-{"event": "CLOSE", "direction": "LONG", "entry_price": 3000.0, "exit_price": 3014.951896795099, "size": 1.0, "pnl_pct": 0.0049839655983662705, "bars_open": 1, "entry_ts": "2025-11-07T09:17:47.742972+00:00", "exit_ts": "2025-11-07T09:17:47.742972+00:00", "reason": "SEED"}
-{"event": "CLOSE", "direction": "LONG", "entry_price": 3000.0, "exit_price": 3024.9101734646492, "size": 1.0, "pnl_pct": 0.008303391154883178, "bars_open": 1, "entry_ts": "2025-11-07T09:17:47.742972+00:00", "exit_ts": "2025-11-07T09:17:47.742972+00:00", "reason": "SEED"}
-{"event": "CLOSE", "direction": "SHORT", "entry_price": 3000.0, "exit_price": 2974.0019604097656, "size": 1.0, "pnl_pct": -0.008666013196744786, "bars_open": 1, "entry_ts": "2025-11-07T09:17:47.742972+00:00", "exit_ts": "2025-11-07T09:17:47.742972+00:00", "reason": "SEED"}
-{"event": "CLOSE", "direction": "LONG", "entry_price": 3000.0, "exit_price": 3009.1754665113076, "size": 1.0, "pnl_pct": 0.0030584888371025494, "bars_open": 1, "entry_ts": "2025-11-07T09:17:47.742972+00:00", "exit_ts": "2025-11-07T09:17:47.742972+00:00", "reason": "SEED"}
-{"event": "CLOSE", "direction": "LONG", "entry_price": 3000.0, "exit_price": 3030.7571197994857, "size": 1.0, "pnl_pct": 0.010252373266495269, "bars_open": 1, "entry_ts": "2025-11-07T09:17:47.742972+00:00", "exit_ts": "2025-11-07T09:17:47.742972+00:00", "reason": "SEED"}
-{"event": "CLOSE", "direction": "SHORT", "entry_price": 3000.0, "exit_price": 2976.3390727052474, "size": 1.0, "pnl_pct": -0.007886975764917589, "bars_open": 1, "entry_ts": "2025-11-07T09:17:47.742972+00:00", "exit_ts": "2025-11-07T09:17:47.742972+00:00", "reason": "SEED"}
-{"event": "CLOSE", "direction": "LONG", "entry_price": 3000.0, "exit_price": 3018.186763945986, "size": 1.0, "pnl_pct": 0.006062254648661927, "bars_open": 1, "entry_ts": "2025-11-07T09:17:47.742972+00:00", "exit_ts": "2025-11-07T09:17:47.742972+00:00", "reason": "SEED"}
-{"event": "CLOSE", "direction": "LONG", "entry_price": 3000.0, "exit_price": 3013.1979464949177, "size": 1.0, "pnl_pct": 0.004399315498306034, "bars_open": 1, "entry_ts": "2025-11-07T09:17:47.742972+00:00", "exit_ts": "2025-11-07T09:17:47.742972+00:00", "reason": "SEED"}
-{"event": "CLOSE", "direction": "SHORT", "entry_price": 3000.0, "exit_price": 2970.8985254836575, "size": 1.0, "pnl_pct": -0.009700491505447469, "bars_open": 1, "entry_ts": "2025-11-07T09:17:47.742972+00:00", "exit_ts": "2025-11-07T09:17:47.742972+00:00", "reason": "SEED"}
-{"event": "CLOSE", "direction": "LONG", "entry_price": 3000.0, "exit_price": 2985.0, "size": 1.0, "pnl_pct": -0.005, "bars_open": 1, "entry_ts": "2025-11-07T09:17:47.751142+00:00", "exit_ts": "2025-11-07T09:17:47.751142+00:00", "reason": "SEED_LOSS"}
-{"event": "CLOSE", "direction": "LONG", "entry_price": 3000.0, "exit_price": 2985.0, "size": 1.0, "pnl_pct": -0.005, "bars_open": 1, "entry_ts": "2025-11-07T09:17:47.751142+00:00", "exit_ts": "2025-11-07T09:17:47.751142+00:00", "reason": "SEED_LOSS"}
-{"event": "CLOSE", "direction": "LONG", "entry_price": 3000.0, "exit_price": 2985.0, "size": 1.0, "pnl_pct": -0.005, "bars_open": 1, "entry_ts": "2025-11-07T09:17:47.751142+00:00", "exit_ts": "2025-11-07T09:17:47.751142+00:00", "reason": "SEED_LOSS"}
-{"event": "CLOSE", "direction": "LONG", "entry_price": 3000.0, "exit_price": 2985.0, "size": 1.0, "pnl_pct": -0.005, "bars_open": 1, "entry_ts": "2025-11-07T09:17:47.751142+00:00", "exit_ts": "2025-11-07T09:17:47.751142+00:00", "reason": "SEED_LOSS"}
-{"event": "CLOSE", "direction": "LONG", "entry_price": 3000.0, "exit_price": 2985.0, "size": 1.0, "pnl_pct": -0.005, "bars_open": 1, "entry_ts": "2025-11-07T09:17:47.751142+00:00", "exit_ts": "2025-11-07T09:17:47.751142+00:00", "reason": "SEED_LOSS"}
-{"event": "CLOSE", "direction": "LONG", "entry_price": 3000.0, "exit_price": 2985.0, "size": 1.0, "pnl_pct": -0.005, "bars_open": 1, "entry_ts": "2025-11-07T09:17:47.751142+00:00", "exit_ts": "2025-11-07T09:17:47.751142+00:00", "reason": "SEED_LOSS"}
-{"event": "CLOSE", "direction": "LONG", "entry_price": 3000.0, "exit_price": 2985.0, "size": 1.0, "pnl_pct": -0.005, "bars_open": 1, "entry_ts": "2025-11-07T09:17:47.751142+00:00", "exit_ts": "2025-11-07T09:17:47.751142+00:00", "reason": "SEED_LOSS"}
-{"event": "CLOSE", "direction": "LONG", "entry_price": 3000.0, "exit_price": 2985.0, "size": 1.0, "pnl_pct": -0.005, "bars_open": 1, "entry_ts": "2025-11-07T09:17:47.751142+00:00", "exit_ts": "2025-11-07T09:17:47.751142+00:00", "reason": "SEED_LOSS"}
-{"event": "CLOSE", "direction": "LONG", "entry_price": 3000.0, "exit_price": 2985.0, "size": 1.0, "pnl_pct": -0.005, "bars_open": 1, "entry_ts": "2025-11-07T09:17:47.751142+00:00", "exit_ts": "2025-11-07T09:17:47.751142+00:00", "reason": "SEED_LOSS"}
-{"event": "CLOSE", "direction": "LONG", "entry_price": 3000.0, "exit_price": 2985.0, "size": 1.0, "pnl_pct": -0.005, "bars_open": 1, "entry_ts": "2025-11-07T09:17:47.751142+00:00", "exit_ts": "2025-11-07T09:17:47.751142+00:00", "reason": "SEED_LOSS"}
+{"ts": "2025-11-07T09:35:12Z", "type": "open", "dir": 1, "pct": 0.0, "risk_mult": 1.7}
+{"ts": "2025-11-07T09:39:41Z", "type": "open", "dir": -1, "pct": 0.0, "risk_mult": 1.0}
+{"ts": "2025-11-07T09:39:41Z", "type": "close", "pct": -0.06511744944243522}
+{"ts": "2025-11-07T09:41:59Z", "type": "close", "pct": 0.03}
+{"ts": "2025-11-07T09:42:00Z", "type": "close", "pct": 0.02}
+{"ts": "2025-11-07T09:42:38Z", "type": "open", "dir": -1, "pct": 0.0, "risk_mult": 1.0}
+{"ts": "2025-11-07T09:42:38Z", "type": "close", "pct": -0.06511744944243522}
+{"ts": "2025-11-07T09:42:38Z", "type": "open", "dir": 1, "pct": 0.0, "risk_mult": 1.0}
+{"ts": "2025-11-07T09:42:38Z", "type": "open", "dir": -1, "pct": 0.0, "risk_mult": 1.0}
+{"ts": "2025-11-07T09:42:38Z", "type": "close", "pct": 0.00019098202085854506}
+{"ts": "2025-11-07T09:42:38Z", "type": "open", "dir": 1, "pct": 0.0, "risk_mult": 1.0}
+{"ts": "2025-11-07T09:42:38Z", "type": "close", "pct": 0.038004883415389816}
+{"ts": "2025-11-07T09:42:38Z", "type": "open", "dir": 1, "pct": 0.0, "risk_mult": 1.0}
+{"ts": "2025-11-07T09:42:38Z", "type": "close", "pct": -0.2456283770631903}
+{"ts": "2025-11-07T09:42:38Z", "type": "open", "dir": 1, "pct": 0.0, "risk_mult": 1.0}
+{"ts": "2025-11-07T09:42:38Z", "type": "close", "pct": 0.2800519510002468}
+{"ts": "2025-11-07T09:42:38Z", "type": "open", "dir": 1, "pct": 0.0, "risk_mult": 1.0}
+{"ts": "2025-11-07T09:42:38Z", "type": "close", "pct": 0.3914208274984957}
+{"ts": "2025-11-07T09:42:38Z", "type": "open", "dir": 1, "pct": 0.0, "risk_mult": 1.0}
+{"ts": "2025-11-07T09:42:38Z", "type": "close", "pct": -0.1873855000553382}
+{"ts": "2025-11-07T09:42:38Z", "type": "open", "dir": -1, "pct": 0.0, "risk_mult": 1.0}
+{"ts": "2025-11-07T09:42:38Z", "type": "close", "pct": 0.22978008739429123}
+{"ts": "2025-11-07T09:42:38Z", "type": "open", "dir": 1, "pct": 0.0, "risk_mult": 1.0}
+{"ts": "2025-11-07T09:42:38Z", "type": "open", "dir": -1, "pct": 0.0, "risk_mult": 1.0}
+{"ts": "2025-11-07T09:42:38Z", "type": "close", "pct": 0.07800302767356761}
+{"ts": "2025-11-07T09:42:38Z", "type": "open", "dir": 1, "pct": 0.0, "risk_mult": 1.0}
+{"ts": "2025-11-07T09:42:38Z", "type": "open", "dir": -1, "pct": 0.0, "risk_mult": 1.0}
+{"ts": "2025-11-07T09:42:38Z", "type": "close", "pct": 0.003792619562985926}
+{"ts": "2025-11-07T09:42:38Z", "type": "open", "dir": -1, "pct": 0.0, "risk_mult": 1.0}
+{"ts": "2025-11-07T09:42:38Z", "type": "close", "pct": 0.32238871225686305}
+{"ts": "2025-11-07T09:42:38Z", "type": "open", "dir": 1, "pct": 0.0, "risk_mult": 1.0}
+{"ts": "2025-11-07T09:42:38Z", "type": "open", "dir": -1, "pct": 0.0, "risk_mult": 1.0}
+{"ts": "2025-11-07T09:42:38Z", "type": "close", "pct": 0.04130209237172352}
+{"ts": "2025-11-07T09:42:38Z", "type": "open", "dir": 1, "pct": 0.0, "risk_mult": 1.0}
+{"ts": "2025-11-07T09:42:38Z", "type": "close", "pct": -0.20333378152074447}
