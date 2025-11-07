@@ -11,15 +11,15 @@ import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+import altair as alt
+import pandas as pd
 import streamlit as st
 
 from engine_alpha.core.paths import REPORTS, LOGS, CONFIG
 
 from datetime import datetime, timezone
 
-MIN_REFRESH = 5
-MAX_REFRESH = 120
-DEFAULT_REFRESH = 10
+REFRESH_OPTIONS = {"Off": None, "5s": 5, "10s": 10, "30s": 30}
 
 
 def _now() -> str:
@@ -41,19 +41,46 @@ def load_jsonl_tail(path: Path, lines: int = 1) -> List[Dict[str, Any]]:
         return []
     try:
         with path.open("r") as f:
-            data = f.readlines()[-lines:]
+            rows = f.readlines()[-lines:]
     except Exception:
         return []
     out: List[Dict[str, Any]] = []
-    for line in data:
-        line = line.strip()
-        if not line:
+    for row in rows:
+        row = row.strip()
+        if not row:
             continue
         try:
-            out.append(json.loads(line))
+            out.append(json.loads(row))
         except Exception:
             continue
     return out
+
+
+def load_equity_df() -> Optional[pd.DataFrame]:
+    path = REPORTS / "equity_curve.jsonl"
+    if not path.exists():
+        return None
+    rows: List[Dict[str, Any]] = []
+    try:
+        with path.open("r") as f:
+            for line in f:
+                try:
+                    obj = json.loads(line)
+                    rows.append(
+                        {
+                            "ts": pd.to_datetime(obj.get("ts")),
+                            "equity": float(obj.get("equity", float("nan"))),
+                            "adj_pct": float(obj.get("adj_pct", 0.0)),
+                        }
+                    )
+                except Exception:
+                    continue
+    except Exception:
+        return None
+    df = pd.DataFrame(rows).dropna(subset=["ts", "equity"])
+    if len(df) < 2:
+        return None
+    return df.sort_values("ts").tail(300)
 
 
 def safe_text(path: Path, lines: int = 3) -> str:
@@ -61,8 +88,7 @@ def safe_text(path: Path, lines: int = 3) -> str:
         return ""
     try:
         with path.open("r") as f:
-            tail = f.readlines()[-lines:]
-        return "".join(tail)
+            return "".join(f.readlines()[-lines:])
     except Exception:
         return ""
 
@@ -92,32 +118,41 @@ def overview_tab():
     col_pa.metric("PA Armed", str(get_value(pa_status, "armed", default="N/A")))
     col_equity.metric("Last Equity", last_equity)
 
-    curve = load_jsonl_tail(REPORTS / "equity_curve.jsonl", lines=300)
-    if curve:
-        chart_data = {
-            "ts": [point.get("ts") for point in curve],
-            "equity": [point.get("equity") for point in curve],
-        }
-        st.line_chart(chart_data, x="ts", y="equity")
+    df = load_equity_df()
+    if df is not None and not df.empty:
+        last_point = df.iloc[-1]
+        color = "green" if last_point.get("adj_pct", 0.0) >= 0 else "red"
+        base = alt.Chart(df).mark_line(strokeWidth=2).encode(
+            x=alt.X("ts:T", title="Time"),
+            y=alt.Y("equity:Q", title="Equity ($)")
+        )
+        dot = alt.Chart(pd.DataFrame([last_point])).mark_circle(size=90, color=color).encode(
+            x="ts:T",
+            y="equity:Q",
+        )
+        st.altair_chart(base + dot, use_container_width=True)
     else:
-        st.info("Equity curve not available yet")
+        st.caption("Equity curve: N/A (need ≥2 points)")
 
-    if st.button("Run acceptance now"):
-        with st.spinner("Executing acceptance check..."):
+    if st.button("Run Acceptance Check"):
+        with st.spinner("Running acceptance check..."):
             try:
                 proc = subprocess.run(
-                    ["python", "tools/acceptance_check.py"],
+                    ["python", "-m", "tools.acceptance_check"],
                     capture_output=True,
                     text=True,
+                    timeout=20,
                     cwd=REPORTS.parent,
-                    check=False,
                 )
-                output = proc.stdout.strip() or proc.stderr.strip()
-                if not output:
-                    output = "No output captured"
-                st.code(output)
-            except Exception as exc:
-                st.error(f"Acceptance run failed: {exc}")
+                output = proc.stdout.strip() or proc.stderr.strip() or "No output captured"
+                try:
+                    st.json(json.loads(output))
+                except Exception:
+                    st.code(output)
+            except FileNotFoundError:
+                st.error("tools/acceptance_check.py not found")
+            except subprocess.TimeoutExpired:
+                st.error("Acceptance check timed out")
 
 
 def portfolio_tab():
@@ -213,15 +248,9 @@ def feeds_tab():
 
 def main():
     st.set_page_config(page_title="Alpha Chloe Dashboard", layout="wide")
-    refresh = st.sidebar.number_input(
-        "Refresh (sec)",
-        min_value=MIN_REFRESH,
-        max_value=MAX_REFRESH,
-        value=DEFAULT_REFRESH,
-        step=5,
-    )
+    refresh_choice = st.sidebar.selectbox("Auto-refresh", list(REFRESH_OPTIONS.keys()), index=1)
     st.title("Alpha Chloe Dashboard")
-    st.caption(f"Read-only metrics (auto-refresh every {refresh}s)")
+    st.caption("Read-only metrics with health analytics")
 
     tabs = st.tabs(["Overview", "Portfolio", "Intelligence", "Feeds/Health"])
     with tabs[0]:
@@ -234,8 +263,12 @@ def main():
         feeds_tab()
 
     st.write("Last refresh:", _now())
-    time.sleep(refresh)
-    st.experimental_rerun()
+    st.query_params = {"ts": _now()}
+
+    refresh_seconds = REFRESH_OPTIONS.get(refresh_choice)
+    if refresh_seconds:
+        time.sleep(refresh_seconds)
+        st.rerun()
 
 
 if __name__ == "__main__":
