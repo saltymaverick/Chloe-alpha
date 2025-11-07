@@ -1,0 +1,19 @@
+{
+  "wallets": [
+    {
+      "id": "demo_whale_A",
+      "label": "demo",
+      "score": 0.7
+    },
+    {
+      "id": "demo_whale_B",
+      "label": "demo",
+      "score": 0.6
+    },
+    {
+      "id": "demo_whale_C",
+      "label": "demo",
+      "score": 0.55
+    }
+  ]
+}

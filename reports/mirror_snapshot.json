@@ -1,0 +1,11 @@
+{
+  "ts": "2025-11-07T15:57:54.852670+00:00",
+  "shadow_pnl": {
+    "demo_whale_A": 1.374545627869834,
+    "demo_whale_B": 2.1140426966452233
+  },
+  "inferences": {
+    "demo_whale_A": "Style=flow (volume/flow skew)",
+    "demo_whale_B": "Style=momentum (signals trend-following skew)"
+  }
+}
