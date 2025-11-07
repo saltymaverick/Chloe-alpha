@@ -15,6 +15,7 @@ from engine_alpha.core.paths import REPORTS, LOGS
 
 from datetime import datetime, timezone
 
+
 def _now() -> str:
     """Return ISO8601 UTC timestamp, e.g. 2025-11-07T16:25:00Z"""
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
@@ -51,6 +52,13 @@ def _read_jsonl_tail(path: Path, lines: int = 1) -> List[Dict[str, Any]]:
         return []
 
 
+def _last_equity() -> Any:
+    tail = _read_jsonl_tail(REPORTS / "equity_curve.jsonl", lines=1)
+    if tail:
+        return tail[0].get("equity")
+    return "N/A"
+
+
 def overview_tab() -> None:
     st.header("Overview")
     col1, col2 = st.columns(2)
@@ -59,6 +67,9 @@ def overview_tab() -> None:
         st.json(_read_json(REPORTS / "pf_local.json") or {"pf": "N/A"})
         st.subheader("PF live")
         st.json(_read_json(REPORTS / "pf_live.json") or {"pf": "N/A"})
+        st.subheader("Accounting")
+        st.json(_read_json(REPORTS / "pf_local_adj.json") or {"pf": "N/A"})
+        st.metric("Last equity", _last_equity())
     with col2:
         st.subheader("PA status")
         st.json(_read_json(REPORTS / "pa_status.json") or {"armed": "N/A"})

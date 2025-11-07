@@ -2,9 +2,9 @@
   "armed": true,
   "last_change_ts": "2025-11-07T09:42:38.423995+00:00",
   "reason": "ARM_GATE_MET",
-  "pf_local": 1.2905497785858384,
-  "pf_live": 1.2905497785858384,
-  "count": 55,
+  "pf_local": 1.0769679487005233,
+  "pf_live": 1.0769679487005233,
+  "count": 64,
   "gates_triplet": [
     0.08,
     0.05,
