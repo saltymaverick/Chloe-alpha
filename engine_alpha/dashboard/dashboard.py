@@ -1,164 +1,229 @@
 """
-Streamlit dashboard - Phase 10 (read-only)
+Streamlit dashboard - Phase 16
 Displays key reports from /reports and /logs.
 """
 
 from __future__ import annotations
 
 import json
+import subprocess
+import time
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 import streamlit as st
 
-from engine_alpha.core.paths import REPORTS, LOGS
+from engine_alpha.core.paths import REPORTS, LOGS, CONFIG
 
 from datetime import datetime, timezone
 
+MIN_REFRESH = 5
+MAX_REFRESH = 120
+DEFAULT_REFRESH = 10
+
 
 def _now() -> str:
-    """Return ISO8601 UTC timestamp, e.g. 2025-11-07T16:25:00Z"""
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
-REFRESH_SECONDS = 10
 
-
-def _read_json(path: Path) -> Dict[str, Any]:
+def load_json(path: Path) -> Optional[Dict[str, Any]]:
     if not path.exists():
-        return {}
+        return None
     try:
         with path.open("r") as f:
             return json.load(f)
     except Exception:
-        return {}
+        return None
 
 
-def _read_jsonl_tail(path: Path, lines: int = 1) -> List[Dict[str, Any]]:
+def load_jsonl_tail(path: Path, lines: int = 1) -> List[Dict[str, Any]]:
     if not path.exists():
         return []
     try:
         with path.open("r") as f:
             data = f.readlines()[-lines:]
-        out = []
-        for line in data:
-            line = line.strip()
-            if line:
-                try:
-                    out.append(json.loads(line))
-                except Exception:
-                    pass
-        return out
     except Exception:
         return []
+    out: List[Dict[str, Any]] = []
+    for line in data:
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            out.append(json.loads(line))
+        except Exception:
+            continue
+    return out
 
 
-def _last_equity() -> Any:
-    tail = _read_jsonl_tail(REPORTS / "equity_curve.jsonl", lines=1)
-    if tail:
-        return tail[0].get("equity")
-    return "N/A"
+def safe_text(path: Path, lines: int = 3) -> str:
+    if not path.exists():
+        return ""
+    try:
+        with path.open("r") as f:
+            tail = f.readlines()[-lines:]
+        return "".join(tail)
+    except Exception:
+        return ""
 
 
-def overview_tab() -> None:
-    st.header("Overview")
-    col1, col2 = st.columns(2)
-    with col1:
-        st.subheader("PF local")
-        st.json(_read_json(REPORTS / "pf_local.json") or {"pf": "N/A"})
-        st.subheader("PF live")
-        st.json(_read_json(REPORTS / "pf_live.json") or {"pf": "N/A"})
-        st.subheader("Accounting")
-        st.json(_read_json(REPORTS / "pf_local_adj.json") or {"pf": "N/A"})
-        st.metric("Last equity", _last_equity())
-    with col2:
-        st.subheader("PA status")
-        st.json(_read_json(REPORTS / "pa_status.json") or {"armed": "N/A"})
-        st.subheader("Ops health (last 5)")
-        tail = _read_jsonl_tail(LOGS / "ops.log", lines=5)
-        if tail:
-            for entry in tail:
-                st.write(entry)
+def get_value(data: Optional[Dict[str, Any]], *keys, default=None):
+    cur: Any = data or {}
+    for key in keys:
+        if isinstance(cur, dict) and key in cur:
+            cur = cur[key]
         else:
-            st.write("No ops log yet")
+            return default
+    return cur
 
 
-def portfolio_tab() -> None:
+def overview_tab():
+    st.header("Overview")
+
+    pf_local = load_json(REPORTS / "pf_local.json")
+    pf_local_adj = load_json(REPORTS / "pf_local_adj.json")
+    pa_status = load_json(REPORTS / "pa_status.json")
+    equity_tail = load_jsonl_tail(REPORTS / "equity_curve.jsonl", lines=1)
+    last_equity = get_value(equity_tail[0], "equity", default="N/A") if equity_tail else "N/A"
+
+    col_pf, col_adj, col_pa, col_equity = st.columns(4)
+    col_pf.metric("PF Local", get_value(pf_local, "pf", default="N/A"))
+    col_adj.metric("PF Local Adj", get_value(pf_local_adj, "pf", default="N/A"))
+    col_pa.metric("PA Armed", str(get_value(pa_status, "armed", default="N/A")))
+    col_equity.metric("Last Equity", last_equity)
+
+    curve = load_jsonl_tail(REPORTS / "equity_curve.jsonl", lines=300)
+    if curve:
+        chart_data = {
+            "ts": [point.get("ts") for point in curve],
+            "equity": [point.get("equity") for point in curve],
+        }
+        st.line_chart(chart_data, x="ts", y="equity")
+    else:
+        st.info("Equity curve not available yet")
+
+    if st.button("Run acceptance now"):
+        with st.spinner("Executing acceptance check..."):
+            try:
+                proc = subprocess.run(
+                    ["python", "tools/acceptance_check.py"],
+                    capture_output=True,
+                    text=True,
+                    cwd=REPORTS.parent,
+                    check=False,
+                )
+                output = proc.stdout.strip() or proc.stderr.strip()
+                if not output:
+                    output = "No output captured"
+                st.code(output)
+            except Exception as exc:
+                st.error(f"Acceptance run failed: {exc}")
+
+
+def portfolio_tab():
     st.header("Portfolio")
     portfolio_dir = REPORTS / "portfolio"
-    st.subheader("Portfolio PF")
-    st.json(_read_json(portfolio_dir / "portfolio_pf.json") or {"portfolio_pf": "N/A"})
 
-    symbols_seen = []
-    if (portfolio_dir / "portfolio_snapshot.json").exists():
-        snapshot = _read_json(portfolio_dir / "portfolio_snapshot.json")
-        symbols_seen = snapshot.get("symbols", [])
-    if not symbols_seen:
-        # fallback: scan files
-        symbols_seen = [p.name.split("_")[0] for p in portfolio_dir.glob("*_trades.jsonl")]
+    pf = load_json(portfolio_dir / "portfolio_pf.json")
+    health = load_json(portfolio_dir / "portfolio_health.json")
+    snapshot = load_json(portfolio_dir / "portfolio_snapshot.json")
 
-    for symbol in symbols_seen:
-        st.subheader(f"{symbol} metrics")
-        st.json(_read_json(portfolio_dir / f"{symbol}_pf.json") or {"pf": "N/A"})
-        tail = _read_jsonl_tail(portfolio_dir / f"{symbol}_trades.jsonl", lines=5)
-        if tail:
-            for entry in tail:
-                st.write(entry)
-        else:
-            st.write("No trades logged")
+    if pf:
+        st.metric("Portfolio PF", pf.get("portfolio_pf", "N/A"))
+    if health:
+        st.write(
+            "Health",
+            {
+                "corr_blocks": health.get("corr_blocks"),
+                "exposure_blocks": health.get("exposure_blocks"),
+                "net_exposure": sum(health.get("open_positions", {}).values()),
+                "cap": get_value(load_json(CONFIG / "asset_list.yaml"), "guard", "net_exposure_cap", default="N/A"),
+            },
+        )
+
+    symbols = snapshot.get("symbols", []) if snapshot else []
+    if not symbols:
+        symbols = [p.name.split("_")[0] for p in portfolio_dir.glob("*_trades.jsonl")]
+
+    if symbols:
+        cols = st.columns(len(symbols))
+        for idx, symbol in enumerate(symbols):
+            data = load_json(portfolio_dir / f"{symbol}_pf.json")
+            if data:
+                cols[idx % len(cols)].metric(symbol, data.get("pf", "N/A"))
+
+    eth_trades = safe_text(portfolio_dir / "ETHUSDT_trades.jsonl", lines=5)
+    if eth_trades:
+        st.subheader("ETHUSDT trade tail")
+        st.code(eth_trades)
+    else:
+        st.info("No ETHUSDT trades logged yet")
 
 
-def intelligence_tab() -> None:
+def intelligence_tab():
     st.header("Intelligence")
     cols = st.columns(3)
 
     with cols[0]:
-        st.subheader("Dream mode")
-        st.json(_read_json(REPORTS / "dream_snapshot.json") or {"status": "N/A"})
-        st.json(_read_json(REPORTS / "dream_proposals.json") or {"proposal": "N/A"})
-        tail = _read_jsonl_tail(REPORTS / "dream_log.jsonl", lines=1)
-        if tail:
-            st.write("Last dream:", tail[0])
-        else:
-            st.write("No dream log yet")
-
+        st.subheader("Dream")
+        st.json(load_json(REPORTS / "dream_snapshot.json") or {"status": "N/A"})
+        dream_tail = load_jsonl_tail(REPORTS / "dream_log.jsonl", 1)
+        if dream_tail:
+            st.write(dream_tail[0])
     with cols[1]:
-        st.subheader("Strategy evolver")
-        st.json(_read_json(REPORTS / "evolver_snapshot.json") or {"status": "N/A"})
-        lineage_tail = _read_jsonl_tail(REPORTS / "strategy_lineage.jsonl", lines=1)
-        run_tail = _read_jsonl_tail(REPORTS / "evolver_runs.jsonl", lines=1)
+        st.subheader("Evolver")
+        st.json(load_json(REPORTS / "evolver_snapshot.json") or {"status": "N/A"})
+        lineage_tail = load_jsonl_tail(REPORTS / "strategy_lineage.jsonl", 1)
         if lineage_tail:
-            st.write("Last lineage: ", lineage_tail[0])
-        if run_tail:
-            st.write("Last run: ", run_tail[0])
-        if not (lineage_tail or run_tail):
-            st.write("No evolver runs yet")
-
+            st.write(lineage_tail[0])
     with cols[2]:
-        st.subheader("Mirror mode")
-        st.json(_read_json(REPORTS / "mirror_snapshot.json") or {"status": "N/A"})
-        tail = _read_jsonl_tail(REPORTS / "mirror_memory.jsonl", lines=5)
-        if tail:
-            for entry in tail:
-                st.write(entry)
+        st.subheader("Confidence")
+        entries = load_jsonl_tail(REPORTS / "confidence_tune.jsonl", 3)
+        if entries:
+            st.table(entries)
         else:
-            st.write("No mirror memory yet")
+            st.write("No tune data yet")
 
 
-def signals_tab() -> None:
-    st.header("Signals / Council")
-    st.json(_read_json(REPORTS / "council_snapshot.json") or {"status": "N/A"})
+def feeds_tab():
+    st.header("Feeds & Health")
+    snapshot = load_json(REPORTS / "feeds_snapshot.json")
+    if snapshot:
+        for exchange, data in snapshot.items():
+            if exchange == "ts":
+                continue
+            st.subheader(exchange.upper())
+            enabled = data.get("enabled", False)
+            st.write("Enabled", enabled)
+            if not enabled:
+                continue
+            time_info = data.get("time", {})
+            st.write("Clock skew", time_info.get("clock_skew_ms", "N/A"))
+            symbols_info = data.get("symbols", {}).get("symbols", {})
+            for symbol, info in symbols_info.items():
+                if info.get("ok"):
+                    st.success(f"{symbol}: ok ({info.get('latency_ms')} ms)")
+                else:
+                    st.error(f"{symbol}: {info.get('error', 'fail')}")
+    ops_tail = safe_text(LOGS / "ops.log", 3)
+    if ops_tail:
+        st.subheader("Ops log tail")
+        st.code(ops_tail)
 
 
 def main():
     st.set_page_config(page_title="Alpha Chloe Dashboard", layout="wide")
+    refresh = st.sidebar.number_input(
+        "Refresh (sec)",
+        min_value=MIN_REFRESH,
+        max_value=MAX_REFRESH,
+        value=DEFAULT_REFRESH,
+        step=5,
+    )
     st.title("Alpha Chloe Dashboard")
-    st.caption("Read-only metrics (updates every 10 seconds)")
+    st.caption(f"Read-only metrics (auto-refresh every {refresh}s)")
 
-    st_autorefresh = st.empty()
-    st_autorefresh.empty()
-
-    tabs = st.tabs(["Overview", "Portfolio", "Intelligence", "Signals/Council"])
-
+    tabs = st.tabs(["Overview", "Portfolio", "Intelligence", "Feeds/Health"])
     with tabs[0]:
         overview_tab()
     with tabs[1]:
@@ -166,10 +231,11 @@ def main():
     with tabs[2]:
         intelligence_tab()
     with tabs[3]:
-        signals_tab()
+        feeds_tab()
 
-    st.query_params = {"ts": _now()}
     st.write("Last refresh:", _now())
+    time.sleep(refresh)
+    st.experimental_rerun()
 
 
 if __name__ == "__main__":
