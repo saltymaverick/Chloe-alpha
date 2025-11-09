@@ -83,6 +83,38 @@ def load_equity_df() -> Optional[pd.DataFrame]:
     return df.sort_values("ts").tail(300)
 
 
+def load_backtest_equity_df() -> Optional[pd.DataFrame]:
+    path = REPORTS / "backtest" / "equity_curve.jsonl"
+    if not path.exists():
+        return None
+    rows: List[Dict[str, Any]] = []
+    try:
+        with path.open("r") as f:
+            for line in f:
+                row = line.strip()
+                if not row:
+                    continue
+                try:
+                    obj = json.loads(row)
+                    rows.append(
+                        {
+                            "ts": pd.to_datetime(obj.get("ts")),
+                            "equity": float(obj.get("equity", float("nan"))),
+                            "adj_pct": float(obj.get("adj_pct", 0.0)),
+                        }
+                    )
+                except Exception:
+                    continue
+    except Exception:
+        return None
+    if not rows:
+        return None
+    df = pd.DataFrame(rows).dropna(subset=["ts", "equity"])
+    if df.empty:
+        return None
+    return df.sort_values("ts").tail(300)
+
+
 def safe_text(path: Path, lines: int = 3) -> str:
     if not path.exists():
         return ""
@@ -211,6 +243,60 @@ def portfolio_tab():
         st.info("No ETHUSDT trades logged yet")
 
 
+def backtest_tab():
+    st.header("Backtest")
+
+    bt_dir = REPORTS / "backtest"
+    summary = load_json(bt_dir / "summary.json")
+
+    if not summary:
+        st.info("No backtest results found under /reports/backtest yet.")
+        return
+
+    pf_val = summary.get("pf")
+    pf_adj_val = summary.get("pf_adj")
+    bars = summary.get("bars")
+    trades = summary.get("trades")
+
+    col_pf, col_pf_adj, col_bars, col_trades = st.columns(4)
+    col_pf.metric("PF", pf_val if isinstance(pf_val, (int, float)) else pf_val or "N/A")
+    col_pf_adj.metric("PF Adj", pf_adj_val if isinstance(pf_adj_val, (int, float)) else pf_adj_val or "N/A")
+    col_bars.metric("Bars", bars if isinstance(bars, (int, float)) else bars or "N/A")
+    col_trades.metric("Trades", trades if isinstance(trades, (int, float)) else trades or "N/A")
+
+    pf_local_adj = load_json(bt_dir / "pf_local_adj.json")
+    if pf_local_adj:
+        st.caption(
+            f"PF Local Adj: {pf_local_adj.get('pf', 'N/A')} "
+            f"(window {pf_local_adj.get('window', 'N/A')}, count {pf_local_adj.get('count', 'N/A')})"
+        )
+
+    df = load_backtest_equity_df()
+    if df is not None and not df.empty:
+        last_point = df.iloc[-1]
+        color = "green" if last_point.get("adj_pct", 0.0) >= 0 else "red"
+        base = alt.Chart(df).mark_line(strokeWidth=2).encode(
+            x=alt.X("ts:T", title="Time"),
+            y=alt.Y("equity:Q", title="Equity ($)")
+        )
+        dot = alt.Chart(pd.DataFrame([last_point])).mark_circle(size=90, color=color).encode(
+            x="ts:T",
+            y="equity:Q",
+        )
+        st.altair_chart(base + dot, use_container_width=True)
+    else:
+        st.caption("Backtest equity curve unavailable.")
+
+    trades_tail = load_jsonl_tail(bt_dir / "trades.jsonl", lines=20)
+    if trades_tail:
+        st.subheader("Trades (last 20)")
+        try:
+            df_trades = pd.DataFrame(trades_tail)
+            st.dataframe(df_trades, use_container_width=True)
+        except Exception:
+            st.code(json.dumps(trades_tail, indent=2))
+
+
 def intelligence_tab():
     st.header("Intelligence")
     cols = st.columns(3)
@@ -330,16 +416,18 @@ def main():
     st.title("Alpha Chloe Dashboard")
     st.caption("Read-only metrics with health analytics")
 
-    tabs = st.tabs(["Overview", "Portfolio", "Intelligence", "Feeds/Health", "Sandbox"])
+    tabs = st.tabs(["Overview", "Portfolio", "Backtest", "Intelligence", "Feeds/Health", "Sandbox"])
     with tabs[0]:
         overview_tab()
     with tabs[1]:
         portfolio_tab()
     with tabs[2]:
-        intelligence_tab()
+        backtest_tab()
     with tabs[3]:
-        feeds_tab()
+        intelligence_tab()
     with tabs[4]:
+        feeds_tab()
+    with tabs[5]:
         sandbox_tab()
 
     st.write("Last refresh:", _now())
