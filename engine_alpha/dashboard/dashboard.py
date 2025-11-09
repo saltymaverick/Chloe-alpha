@@ -20,7 +20,12 @@ from engine_alpha.core.paths import REPORTS, LOGS, CONFIG
 
 from datetime import datetime, timezone
 
-REFRESH_OPTIONS = {"Off": None, "5s": 5, "10s": 10, "30s": 30}
+try:
+    from streamlit_autorefresh import st_autorefresh  # type: ignore
+except ImportError:  # pragma: no cover - optional dependency
+    st_autorefresh = None
+
+REFRESH_OPTIONS = {"Off": 0, "5 s": 5000, "10 s": 10000, "30 s": 30000}
 
 
 def _now() -> str:
@@ -31,6 +36,7 @@ def load_json(path: Path) -> Optional[Dict[str, Any]]:
     if not path.exists():
         return None
     try:
+        # explicit re-read each render (no caching)
         with path.open("r") as f:
             return json.load(f)
     except Exception:
@@ -136,13 +142,80 @@ def get_value(data: Optional[Dict[str, Any]], *keys, default=None):
     return cur
 
 
+def _parse_ts(ts_val: Any) -> Optional[datetime]:
+    if ts_val is None:
+        return None
+    if isinstance(ts_val, (int, float)):
+        try:
+            return datetime.fromtimestamp(ts_val, tz=timezone.utc)
+        except Exception:
+            return None
+    if isinstance(ts_val, str):
+        candidate = ts_val
+        if candidate.endswith("Z"):
+            candidate = candidate[:-1] + "+00:00"
+        try:
+            return datetime.fromisoformat(candidate)
+        except Exception:
+            return None
+    return None
+
+
+def _status_markdown(label: str, ts_val: Optional[str], extra: Optional[str] = None) -> str:
+    now = datetime.now(timezone.utc)
+    dt = _parse_ts(ts_val)
+    if dt is None:
+        color = "gray"
+        text = "N/A"
+    else:
+        age_hours = (now - dt).total_seconds() / 3600.0
+        if age_hours < 1:
+            color = "green"
+        elif age_hours < 2:
+            color = "orange"
+        else:
+            color = "red"
+        text = dt.strftime("%Y-%m-%d %H:%M UTC")
+    suffix = f"  \n{extra}" if extra else ""
+    return f"**{label}:** :{color}[{text}]{suffix}"
+
+
+def _extract_trade_ts(trades: List[Dict[str, Any]]) -> Optional[str]:
+    for entry in reversed(trades):
+        for key in ("ts", "exit_ts", "entry_ts"):
+            if entry.get(key):
+                return entry.get(key)
+    return None
+
+
 def overview_tab():
     st.header("Overview")
+
+    orch = load_json(REPORTS / "orchestrator_snapshot.json")
+    live_state = load_json(REPORTS / "live_loop_state.json")
+    trades_tail = load_jsonl_tail(REPORTS / "trades.jsonl", lines=1)
+    dream_tail = load_jsonl_tail(REPORTS / "dream_log.jsonl", lines=1)
+
+    policy_ts = orch.get("ts") if orch else None
+    live_ts = get_value(live_state, "ts")
+    trade_ts = _extract_trade_ts(trades_tail)
+    dream_ts = dream_tail[0].get("ts") if dream_tail else None
+
+    col_policy, col_live, col_trade, col_dream = st.columns(4)
+    col_policy.markdown(_status_markdown("Policy ts", policy_ts))
+    live_extra = None
+    if live_state:
+        sym = live_state.get("symbol")
+        tf = live_state.get("timeframe")
+        if sym or tf:
+            live_extra = f"{sym or ''} {tf or ''}".strip()
+    col_live.markdown(_status_markdown("Live ts", live_ts, extra=live_extra or None))
+    col_trade.markdown(_status_markdown("Trade ts", trade_ts))
+    col_dream.markdown(_status_markdown("Dream ts", dream_ts))
 
     pf_local = load_json(REPORTS / "pf_local.json")
     pf_local_adj = load_json(REPORTS / "pf_local_adj.json")
     pa_status = load_json(REPORTS / "pa_status.json")
-    orch = load_json(REPORTS / "orchestrator_snapshot.json")
     equity_tail = load_jsonl_tail(REPORTS / "equity_curve.jsonl", lines=1)
     last_equity = get_value(equity_tail[0], "equity", default="N/A") if equity_tail else "N/A"
 
@@ -433,6 +506,11 @@ def sandbox_tab():
 def main():
     st.set_page_config(page_title="Alpha Chloe Dashboard", layout="wide")
     refresh_choice = st.sidebar.selectbox("Auto-refresh", list(REFRESH_OPTIONS.keys()), index=1)
+    if st.sidebar.button("Refresh now"):
+        if hasattr(st, "rerun"):
+            st.rerun()
+        else:  # pragma: no cover - older Streamlit fallback
+            st.experimental_rerun()
     st.title("Alpha Chloe Dashboard")
     st.caption("Read-only metrics with health analytics")
 
@@ -451,12 +529,21 @@ def main():
         sandbox_tab()
 
     st.write("Last refresh:", _now())
-    st.query_params = {"ts": _now()}
+    try:
+        st.query_params = {"ts": str(int(time.time()))}
+    except Exception:
+        pass
 
-    refresh_seconds = REFRESH_OPTIONS.get(refresh_choice)
-    if refresh_seconds:
-        time.sleep(refresh_seconds)
-        st.rerun()
+    interval_ms = REFRESH_OPTIONS.get(refresh_choice, 0) or 0
+    if interval_ms > 0:
+        if st_autorefresh is not None:
+            st_autorefresh(interval=interval_ms, key="refresh")
+        else:
+            time.sleep(interval_ms / 1000.0)
+            if hasattr(st, "rerun"):
+                st.rerun()
+            else:  # pragma: no cover - older Streamlit fallback
+                st.experimental_rerun()
 
 
 if __name__ == "__main__":
