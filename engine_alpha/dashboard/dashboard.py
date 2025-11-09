@@ -15,15 +15,11 @@ from typing import Any, Dict, List, Optional
 import altair as alt
 import pandas as pd
 import streamlit as st
+import yaml
 
-from engine_alpha.core.paths import REPORTS, LOGS, CONFIG
+from engine_alpha.core.paths import REPORTS, LOGS, CONFIG, DATA
 
 from datetime import datetime, timezone
-
-try:
-    from streamlit_autorefresh import st_autorefresh  # type: ignore
-except ImportError:  # pragma: no cover - optional dependency
-    st_autorefresh = None
 
 REFRESH_OPTIONS = {"Off": 0, "5 s": 5000, "10 s": 10000, "30 s": 30000}
 
@@ -39,6 +35,17 @@ def load_json(path: Path) -> Optional[Dict[str, Any]]:
         # explicit re-read each render (no caching)
         with path.open("r") as f:
             return json.load(f)
+    except Exception:
+        return None
+
+
+def load_yaml(path: Path) -> Optional[Dict[str, Any]]:
+    if not path.exists():
+        return None
+    try:
+        with path.open("r") as f:
+            data = yaml.safe_load(f)
+            return data or {}
     except Exception:
         return None
 
@@ -61,6 +68,11 @@ def load_jsonl_tail(path: Path, lines: int = 1) -> List[Dict[str, Any]]:
         except Exception:
             continue
     return out
+
+
+def jsonl_tail(path: Path, lines: int = 1) -> List[Dict[str, Any]]:
+    """Alias helper for clarity."""
+    return load_jsonl_tail(path, lines)
 
 
 def load_equity_df() -> Optional[pd.DataFrame]:
@@ -161,23 +173,55 @@ def _parse_ts(ts_val: Any) -> Optional[datetime]:
     return None
 
 
-def _status_markdown(label: str, ts_val: Optional[str], extra: Optional[str] = None) -> str:
-    now = datetime.now(timezone.utc)
+def fmt_ts(ts_val: Any) -> str:
     dt = _parse_ts(ts_val)
     if dt is None:
-        color = "gray"
-        text = "N/A"
-    else:
-        age_hours = (now - dt).total_seconds() / 3600.0
-        if age_hours < 1:
-            color = "green"
-        elif age_hours < 2:
-            color = "orange"
-        else:
-            color = "red"
-        text = dt.strftime("%Y-%m-%d %H:%M UTC")
-    suffix = f"  \n{extra}" if extra else ""
-    return f"**{label}:** :{color}[{text}]{suffix}"
+        return "N/A"
+    return dt.strftime("%Y-%m-%d %H:%M UTC")
+
+
+def color_age(ts_val: Any) -> str:
+    dt = _parse_ts(ts_val)
+    if dt is None:
+        return "gray"
+    age = (datetime.now(timezone.utc) - dt).total_seconds()
+    if age < 3600:
+        return "green"
+    if age < 7200:
+        return "orange"
+    return "red"
+
+
+def _render_tile(column, label: str, ts_val: Any, extra: Optional[str] = None) -> None:
+    color = color_age(ts_val)
+    text = fmt_ts(ts_val)
+    if extra:
+        text = f"{text}  \n{extra}"
+    column.markdown(f"**{label}:** :{color}[{text}]")
+
+
+def _live_defaults() -> Dict[str, str]:
+    symbol = "ETHUSDT"
+    timeframe = "1h"
+    cfg = load_yaml(CONFIG / "backtest.yaml")
+    if isinstance(cfg, dict):
+        live_cfg = cfg.get("live") or {}
+        symbols = live_cfg.get("symbols")
+        if isinstance(symbols, list) and symbols:
+            symbol = str(symbols[0])
+        timeframe = str(live_cfg.get("timeframe", timeframe))
+    return {"symbol": symbol, "timeframe": timeframe}
+
+
+def _load_live_meta(symbol: str, timeframe: str) -> Optional[Dict[str, Any]]:
+    meta_path = DATA / "ohlcv" / f"live_{symbol}_{timeframe}_meta.json"
+    return load_json(meta_path)
+
+
+def _truncate_text(text: str, limit: int = 600) -> tuple[str, bool]:
+    if len(text) <= limit:
+        return text, False
+    return text[:limit].rstrip() + "…", True
 
 
 def _extract_trade_ts(trades: List[Dict[str, Any]]) -> Optional[str]:
@@ -193,8 +237,8 @@ def overview_tab():
 
     orch = load_json(REPORTS / "orchestrator_snapshot.json")
     live_state = load_json(REPORTS / "live_loop_state.json")
-    trades_tail = load_jsonl_tail(REPORTS / "trades.jsonl", lines=1)
-    dream_tail = load_jsonl_tail(REPORTS / "dream_log.jsonl", lines=1)
+    trades_tail = jsonl_tail(REPORTS / "trades.jsonl", lines=1)
+    dream_tail = jsonl_tail(REPORTS / "dream_log.jsonl", lines=1)
 
     policy_ts = orch.get("ts") if orch else None
     live_ts = get_value(live_state, "ts")
@@ -202,16 +246,28 @@ def overview_tab():
     dream_ts = dream_tail[0].get("ts") if dream_tail else None
 
     col_policy, col_live, col_trade, col_dream = st.columns(4)
-    col_policy.markdown(_status_markdown("Policy ts", policy_ts))
+    _render_tile(col_policy, "Policy", policy_ts)
     live_extra = None
     if live_state:
         sym = live_state.get("symbol")
         tf = live_state.get("timeframe")
         if sym or tf:
             live_extra = f"{sym or ''} {tf or ''}".strip()
-    col_live.markdown(_status_markdown("Live ts", live_ts, extra=live_extra or None))
-    col_trade.markdown(_status_markdown("Trade ts", trade_ts))
-    col_dream.markdown(_status_markdown("Dream ts", dream_ts))
+    _render_tile(col_live, "Live", live_ts, extra=live_extra or None)
+    _render_tile(col_trade, "Trade", trade_ts)
+    _render_tile(col_dream, "Dream", dream_ts)
+
+    defaults = _live_defaults()
+    meta = _load_live_meta(defaults["symbol"], defaults["timeframe"])
+    if meta:
+        last_ts = meta.get("last_ts") or meta.get("ts") or "N/A"
+        host = meta.get("host") or meta.get("source") or "unknown"
+        rows = meta.get("rows") or meta.get("count") or meta.get("size") or "?"
+        st.caption(
+            f"Live: {defaults['symbol']} {defaults['timeframe']} • last: {fmt_ts(last_ts)} • host: {host} • rows: {rows}"
+        )
+    else:
+        st.caption("Live: N/A")
 
     pf_local = load_json(REPORTS / "pf_local.json")
     pf_local_adj = load_json(REPORTS / "pf_local_adj.json")
@@ -441,6 +497,85 @@ def feeds_tab():
         st.code(ops_tail)
 
 
+def reasoning_tab():
+    st.header("Reasoning")
+    if "gpt_snapshot_output" in st.session_state:
+        with st.expander("GPT Snapshot Output"):
+            st.code(st.session_state.pop("gpt_snapshot_output") or "No output captured")
+
+    run_clicked = st.button("Run GPT Snapshot")
+    if run_clicked:
+        output = ""
+        with st.spinner("Running GPT snapshot..."):
+            try:
+                proc = subprocess.run(
+                    [sys.executable, "-m", "tools.run_gpt_snapshot"],
+                    capture_output=True,
+                    text=True,
+                    timeout=60,
+                )
+                parts = [proc.stdout.strip(), proc.stderr.strip()]
+                output = "\n".join(part for part in parts if part) or "No output captured"
+            except subprocess.TimeoutExpired:
+                output = "GPT snapshot timed out after 60 seconds."
+            except Exception as exc:  # pragma: no cover
+                output = f"GPT snapshot failed: {exc}"
+        st.session_state["gpt_snapshot_output"] = output
+        st.rerun()
+
+    st.subheader("Reflection Summary")
+    reflection = load_json(REPORTS / "gpt_summary.json")
+    if reflection:
+        text = reflection.get("summary") or ""
+        if text:
+            preview, truncated = _truncate_text(text)
+            st.write(preview)
+            if truncated:
+                with st.expander("…more"):
+                    st.write(text)
+        else:
+            st.write("Summary: N/A")
+        cost = reflection.get("cost_usd")
+        tokens = reflection.get("tokens")
+        st.caption(f"tokens={tokens or 'N/A'} | cost={cost or 0.0}")
+    else:
+        st.info("No reflection summary available.")
+
+    st.subheader("News Tone")
+    news = load_json(REPORTS / "news_tone.json")
+    if news:
+        score = news.get("score", "N/A")
+        st.write(f"Score: {score}")
+        reason = news.get("reason")
+        if reason:
+            preview, truncated = _truncate_text(str(reason), limit=400)
+            st.write(preview)
+            if truncated:
+                with st.expander("News tone details"):
+                    st.write(reason)
+    else:
+        st.info("No news tone available.")
+
+    st.subheader("Governance Rationale")
+    gov_tail = jsonl_tail(REPORTS / "governance_log.jsonl", lines=1)
+    if gov_tail:
+        record = gov_tail[0]
+        rec = record.get("recommendation", "N/A")
+        sci = record.get("sci", "N/A")
+        st.write(f"Recommendation: {rec} (SCI {sci})")
+        reason = record.get("gpt_reason")
+        if reason:
+            preview, truncated = _truncate_text(str(reason), limit=400)
+            st.write(preview)
+            if truncated:
+                with st.expander("Governance rationale"):
+                    st.write(reason)
+        else:
+            st.write("GPT rationale: N/A")
+    else:
+        st.info("No governance log entries yet.")
+
+
 def sandbox_tab():
     st.header("Sandbox")
     runs_path = REPORTS / "sandbox" / "sandbox_runs.jsonl"
@@ -505,27 +640,36 @@ def sandbox_tab():
 
 def main():
     st.set_page_config(page_title="Alpha Chloe Dashboard", layout="wide")
-    refresh_choice = st.sidebar.selectbox("Auto-refresh", list(REFRESH_OPTIONS.keys()), index=1)
+    refresh_choice = st.sidebar.selectbox("Auto-refresh", list(REFRESH_OPTIONS.keys()), index=2)
     if st.sidebar.button("Refresh now"):
-        if hasattr(st, "rerun"):
-            st.rerun()
-        else:  # pragma: no cover - older Streamlit fallback
-            st.experimental_rerun()
+        st.rerun()
     st.title("Alpha Chloe Dashboard")
     st.caption("Read-only metrics with health analytics")
 
-    tabs = st.tabs(["Overview", "Portfolio", "Backtest", "Intelligence", "Feeds/Health", "Sandbox"])
-    with tabs[0]:
+    (
+        tab_overview,
+        tab_portfolio,
+        tab_backtest,
+        tab_intelligence,
+        tab_reasoning,
+        tab_feeds,
+        tab_sandbox,
+    ) = st.tabs(
+        ["Overview", "Portfolio", "Backtest", "Intelligence", "Reasoning", "Feeds/Health", "Sandbox"]
+    )
+    with tab_overview:
         overview_tab()
-    with tabs[1]:
+    with tab_portfolio:
         portfolio_tab()
-    with tabs[2]:
+    with tab_backtest:
         backtest_tab()
-    with tabs[3]:
+    with tab_intelligence:
         intelligence_tab()
-    with tabs[4]:
+    with tab_reasoning:
+        reasoning_tab()
+    with tab_feeds:
         feeds_tab()
-    with tabs[5]:
+    with tab_sandbox:
         sandbox_tab()
 
     st.write("Last refresh:", _now())
@@ -536,14 +680,8 @@ def main():
 
     interval_ms = REFRESH_OPTIONS.get(refresh_choice, 0) or 0
     if interval_ms > 0:
-        if st_autorefresh is not None:
-            st_autorefresh(interval=interval_ms, key="refresh")
-        else:
-            time.sleep(interval_ms / 1000.0)
-            if hasattr(st, "rerun"):
-                st.rerun()
-            else:  # pragma: no cover - older Streamlit fallback
-                st.experimental_rerun()
+        time.sleep(interval_ms / 1000.0)
+        st.rerun()
 
 
 if __name__ == "__main__":
