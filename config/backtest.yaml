@@ -3,6 +3,7 @@ symbols:
 timeframe: "1h"
 start: "2024-01-01T00:00:00Z"
 end: "2024-02-01T00:00:00Z"
+limit: 300
 source: "csv"  # csv | parquet | ccxt | synthetic
 csv_glob: "/root/Chloe-alpha/data/ohlcv/{symbol}_{timeframe}.csv"
 parquet_path: "/root/Chloe-alpha/data/ohlcv/{symbol}_{timeframe}.parquet"
@@ -16,6 +17,5 @@ max_trade_pct: 0.05
 live:
   symbols:
     - ETHUSDT
-    - BTCUSDT
   timeframe: "1h"
   limit: 300

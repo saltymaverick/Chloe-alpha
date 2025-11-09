@@ -410,23 +410,33 @@ def _section_council() -> Dict[str, Any]:
 
 
 def _section_backtest() -> Dict[str, Any]:
-    summary_path = REPORTS / "backtest" / "summary.json"
-    if not summary_path.exists():
-        return {"ok": True, "optional": True, "details": {"note": "backtest_not_run"}}
+    index_path = REPORTS / "backtest" / "index.json"
+    if not index_path.exists():
+        return {
+            "ok": False,
+            "optional": True,
+            "details": {"reason": "index_missing"},
+        }
     try:
-        data = json.loads(summary_path.read_text())
+        data = json.loads(index_path.read_text())
     except Exception as exc:
         return {"ok": False, "optional": True, "details": {"error": str(exc)}}
-    pf = data.get("pf")
-    pf_adj = data.get("pf_adj")
-    trades = data.get("trades", 0)
-    ok = (
-        isinstance(pf, (int, float))
-        and isinstance(pf_adj, (int, float))
-        and isinstance(trades, (int, float))
-        and trades >= 1
-    )
-    return {"ok": ok, "optional": True, "details": data}
+    runs = data if isinstance(data, list) else []
+    ok = bool(runs)
+    details: Dict[str, Any] = {"count": len(runs)}
+    if runs:
+        latest = max(runs, key=lambda item: item.get("ts", ""))
+        details.update(
+            {
+                "last_dir": latest.get("dir"),
+                "last_ts": latest.get("ts"),
+                "last_symbol": latest.get("symbol"),
+                "last_tag": latest.get("tag"),
+            }
+        )
+    else:
+        details["reason"] = "no_runs"
+    return {"ok": ok, "optional": True, "details": details}
 
 
 def _section_live_feeds() -> Dict[str, Any]:

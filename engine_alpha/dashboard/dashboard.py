@@ -145,9 +145,9 @@ def load_equity_df() -> Optional[pd.DataFrame]:
     return df.sort_values("ts").tail(300)
 
 
-def load_backtest_equity_df() -> Optional[pd.DataFrame]:
-    path = REPORTS / "backtest" / "equity_curve.jsonl"
-    if not path.exists():
+def load_backtest_equity_df(jsonl_path: Optional[Path] = None) -> Optional[pd.DataFrame]:
+    path = jsonl_path or (REPORTS / "backtest" / "equity_curve.jsonl")
+    if not path.exists() or path.is_dir():
         return None
     rows: List[Dict[str, Any]] = []
     try:
@@ -365,10 +365,51 @@ def backtest_tab():
             st.code(output)
         st.rerun()
 
-    summary = load_json(bt_dir / "summary.json")
+    index_path = bt_dir / "index.json"
+    runs: List[Dict[str, Any]] = []
+    if index_path.exists():
+        try:
+            data = json.loads(index_path.read_text())
+            if isinstance(data, list):
+                runs = data
+        except Exception:
+            runs = []
 
+    if not runs:
+        st.info("No backtest runs recorded under /reports/backtest yet.")
+        return
+
+    runs.sort(key=lambda item: item.get("ts", ""), reverse=True)
+    option_map = {}
+    options: List[str] = []
+    for entry in runs:
+        symbol = entry.get("symbol", "N/A")
+        timeframe = entry.get("timeframe", "N/A")
+        start = entry.get("start", "N/A")
+        end = entry.get("end", "N/A")
+        ts_val = entry.get("ts", "N/A")
+        tag = entry.get("tag") or ""
+        label = f"{symbol} {timeframe} | {start}→{end} | {ts_val}"
+        label = f"{label} | {tag}" if tag else f"{label} | "
+        option_map[label] = entry
+        options.append(label)
+
+    selected_label = st.selectbox("Backtest runs", options, index=0 if options else 0)
+    selected_entry = option_map.get(selected_label)
+
+    if not selected_entry:
+        st.warning("Unable to resolve selected backtest run.")
+        return
+
+    rel_dir = selected_entry.get("dir")
+    if not rel_dir:
+        st.warning("Selected backtest entry missing run directory metadata.")
+        return
+    run_dir = bt_dir / rel_dir
+
+    summary = load_json(run_dir / "summary.json") or {}
     if not summary:
-        st.info("No backtest results found under /reports/backtest yet.")
+        st.warning(f"No summary found for run directory {rel_dir}.")
         return
 
     pf_val = summary.get("pf")
@@ -382,14 +423,18 @@ def backtest_tab():
     col_bars.metric("Bars", bars if isinstance(bars, (int, float)) else bars or "N/A")
     col_trades.metric("Trades", trades if isinstance(trades, (int, float)) else trades or "N/A")
 
-    pf_local_adj = load_json(bt_dir / "pf_local_adj.json")
+    st.caption(
+        f"Run dir: {rel_dir} | Tag: {summary.get('tag') or 'N/A'} | Start equity: {summary.get('start_equity', 'N/A')}"
+    )
+
+    pf_local_adj = load_json(run_dir / "pf_local_adj.json")
     if pf_local_adj:
         st.caption(
             f"PF Local Adj: {pf_local_adj.get('pf', 'N/A')} "
             f"(window {pf_local_adj.get('window', 'N/A')}, count {pf_local_adj.get('count', 'N/A')})"
         )
 
-    df = load_backtest_equity_df()
+    df = load_backtest_equity_df(run_dir / "equity_curve.jsonl")
     if df is not None and not df.empty:
         last_point = df.iloc[-1]
         color = "green" if last_point.get("adj_pct", 0.0) >= 0 else "red"
@@ -403,9 +448,9 @@ def backtest_tab():
         )
         st.altair_chart(base + dot, use_container_width=True)
     else:
-        st.caption("Backtest equity curve unavailable.")
+        st.caption("Backtest equity curve unavailable for this run.")
 
-    trades_tail = jsonl_tail(bt_dir / "trades.jsonl", n=20)
+    trades_tail = jsonl_tail(run_dir / "trades.jsonl", n=20)
     if trades_tail:
         st.subheader("Trades (last 20)")
         try:
@@ -413,6 +458,8 @@ def backtest_tab():
             st.dataframe(df_trades, use_container_width=True)
         except Exception:
             st.code(json.dumps(trades_tail, indent=2))
+    else:
+        st.info("No trades recorded in this backtest run.")
 
 
 def intelligence_tab():
