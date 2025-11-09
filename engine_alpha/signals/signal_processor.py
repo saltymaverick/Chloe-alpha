@@ -5,10 +5,11 @@ Processes signals from registry and returns normalized signal vector.
 
 import json
 import math
-from pathlib import Path
-from typing import Dict, Any, List, Optional
 from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any, Dict, List, Optional
 
+from engine_alpha.data.live_prices import get_live_ohlcv
 from engine_alpha.signals import signal_fetchers
 
 
@@ -111,20 +112,7 @@ def _normalize_signal(raw_value: float, signal_config: Dict[str, Any]) -> float:
         return max(-1.0, min(1.0, raw_value))
 
 
-def get_signal_vector(symbol: str = "ETHUSDT", timeframe: str = "1h") -> Dict[str, Any]:
-    """
-    Generate signal vector by loading registry, calling fetchers, and normalizing.
-    
-    Args:
-        symbol: Trading symbol (default: ETHUSDT)
-        timeframe: Timeframe (default: 1h)
-    
-    Returns:
-        Dictionary with keys:
-        - signal_vector: List[float] - normalized signals in [-1, 1]
-        - raw_registry: Dict[str, Any] - raw values keyed by signal name
-        - ts: str - UTC ISO8601 timestamp
-    """
+def _build_signal_vector(symbol: str, timeframe: str, ctx: Optional[Dict[str, Any]] = None, ts_override: Optional[str] = None) -> Dict[str, Any]:
     # Load registry
     registry = _load_registry()
     signals = registry.get("signals", [])
@@ -174,12 +162,45 @@ def get_signal_vector(symbol: str = "ETHUSDT", timeframe: str = "1h") -> Dict[st
             }
             signal_vector.append(0.0)
     
-    # Generate ISO8601 timestamp
-    ts = datetime.now(timezone.utc).isoformat()
+    ts = ts_override or datetime.now(timezone.utc).isoformat()
+    if ctx:
+        raw_registry["_ctx"] = ctx
     
     return {
         "signal_vector": signal_vector,
         "raw_registry": raw_registry,
-        "ts": ts
+        "ts": ts,
     }
+
+
+def get_signal_vector(symbol: str = "ETHUSDT", timeframe: str = "1h") -> Dict[str, Any]:
+    """
+    Generate signal vector via stub fetchers (simulation/testing mode).
+    """
+    ctx = {
+        "symbol": symbol,
+        "timeframe": timeframe,
+        "mode": "sim",
+        "now": datetime.now(timezone.utc).isoformat(),
+    }
+    return _build_signal_vector(symbol, timeframe, ctx=ctx, ts_override=ctx["now"])
+
+
+def get_signal_vector_live(symbol: str = "ETHUSDT", timeframe: str = "1h", limit: int = 200) -> Dict[str, Any]:
+    """
+    Generate signal vector using live OHLCV context (read-only).
+    """
+    rows = get_live_ohlcv(symbol, timeframe, limit=limit)
+    ts = rows[-1]["ts"] if rows else datetime.now(timezone.utc).isoformat()
+    ctx = {
+        "symbol": symbol,
+        "timeframe": timeframe,
+        "mode": "live",
+        "now": ts,
+        "rows_available": len(rows),
+        "limit": limit,
+    }
+    result = _build_signal_vector(symbol, timeframe, ctx=ctx, ts_override=ts)
+    result["context"] = ctx
+    return result
 

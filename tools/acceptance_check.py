@@ -17,7 +17,7 @@ from typing import Dict, Any, List
 
 import yaml
 
-from engine_alpha.core.paths import REPORTS, CONFIG
+from engine_alpha.core.paths import REPORTS, CONFIG, DATA
 
 MIN_GATE = 0.40
 MAX_GATE = 0.80
@@ -26,6 +26,7 @@ SUMMARY_NAME = "acceptance_summary.json"
 MAX_CLOCK_SKEW_MS = 500
 MAX_MEDIAN_LATENCY_MS = 300
 DREAM_MAX_AGE = timedelta(hours=36)
+LIVE_MAX_AGE = timedelta(hours=24)
 
 
 def _iso_now() -> str:
@@ -428,6 +429,51 @@ def _section_backtest() -> Dict[str, Any]:
     return {"ok": ok, "optional": True, "details": data}
 
 
+def _section_live_feeds() -> Dict[str, Any]:
+    feeds_health_path = REPORTS / "feeds_health.json"
+    feeds_exists = feeds_health_path.exists()
+
+    try:
+        with (CONFIG / "backtest.yaml").open("r") as f:
+            cfg = yaml.safe_load(f) or {}
+    except Exception:
+        cfg = {}
+    live_cfg = cfg.get("live", {})
+    symbols = live_cfg.get("symbols", ["ETHUSDT"])
+    timeframe = live_cfg.get("timeframe", "1h")
+
+    records = []
+    any_fresh = False
+    for symbol in symbols:
+        meta_path = DATA / "ohlcv" / f"live_{symbol}_{timeframe}_meta.json"
+        meta = _read_json(meta_path)
+        last_ts = meta.get("last_ts")
+        rows = meta.get("rows", 0)
+        fresh = _within_hours(last_ts, LIVE_MAX_AGE) if last_ts else False
+        any_fresh = any_fresh or (fresh and rows >= 1)
+        records.append(
+            {
+                "symbol": symbol,
+                "rows": rows,
+                "fresh": fresh,
+                "last_ts": last_ts,
+                "host": meta.get("host"),
+            }
+        )
+
+    ok = feeds_exists and any_fresh
+    details = {
+        "feeds_health": feeds_exists,
+        "symbols": records,
+    }
+    if not feeds_exists:
+        details["reason"] = "feeds_health_missing"
+    elif not any_fresh:
+        details["reason"] = "no_recent_live_rows"
+
+    return {"ok": ok, "optional": True, "details": details}
+
+
 def _section_sandbox() -> Dict[str, Any]:
     status_path = REPORTS / "sandbox" / "sandbox_status.json"
     runs_path = REPORTS / "sandbox" / "sandbox_runs.jsonl"
@@ -468,6 +514,7 @@ def main() -> int:
         "governance": _section_governance(),
         "orchestrator": _section_orchestrator(),
         "backtest": _section_backtest(),
+        "live_feeds": _section_live_feeds(),
     }
     blocking_sections = {
         name: section for name, section in sections.items() if not section.get("optional")
