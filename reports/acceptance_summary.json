@@ -1,5 +1,5 @@
 {
-  "ts": "2025-11-07T23:01:43.924720+00:00",
+  "ts": "2025-11-09T15:48:43.719818+00:00",
   "PASS": true,
   "sections": {
     "feeds": {
@@ -26,10 +26,10 @@
     "pf_pa": {
       "ok": true,
       "details": {
-        "pf_local": 0.9245711867815269,
-        "pf_live": 0.9245711867815269,
+        "pf_local": 0.7020759569509955,
+        "pf_live": 0.7020759569509955,
         "armed": true,
-        "count": 24,
+        "count": 33,
         "gate_consistent": true
       }
     },
@@ -48,7 +48,7 @@
     "dream": {
       "ok": true,
       "details": {
-        "ts": "2025-11-07T22:54:50.890716+00:00",
+        "ts": "2025-11-09T15:18:07.890761+00:00",
         "fresh": true,
         "proposal_present": true
       }
@@ -62,7 +62,7 @@
     "ops": {
       "ok": true,
       "details": {
-        "ts": "2025-11-07T23:01:43.914706+00:00",
+        "ts": "2025-11-09T15:48:43.708765+00:00",
         "pf_ok": true,
         "trades_ok": true,
         "dream_ok": true,
@@ -72,10 +72,10 @@
     "accounting": {
       "ok": true,
       "details": {
-        "pf_adj_live": 0.9066197079975409,
-        "pf_adj_local": 0.9066197079975409,
-        "points": 11,
-        "fresh_hours": 0.03,
+        "pf_adj_live": 0.6870724202121381,
+        "pf_adj_local": 0.6870724202121381,
+        "points": 15,
+        "fresh_hours": 0.0,
         "curve_ok": true,
         "pf_ok": true,
         "fresh": true
@@ -227,10 +227,10 @@
     "risk": {
       "ok": true,
       "details": {
-        "ts": "2025-11-07T22:59:40.037362+00:00",
-        "equity": 7635.802924096188,
+        "ts": "2025-11-09T15:48:43.441709+00:00",
+        "equity": 5556.8335418119805,
         "peak": 9664.82661135739,
-        "drawdown": 0.20993896412759683,
+        "drawdown": 0.42504570798176555,
         "band": "C",
         "mult": 0.5,
         "reason": "computed"
@@ -264,6 +264,26 @@
         },
         "sci": 0.5012578585474649,
         "recommendation": "REVIEW"
+      }
+    },
+    "orchestrator": {
+      "ok": true,
+      "details": {
+        "ts": "2025-11-09T15:48:43.572722+00:00",
+        "inputs": {
+          "sci": 0.5012578585474649,
+          "rec": "REVIEW",
+          "risk_band": "C",
+          "risk_mult": 0.5,
+          "pf_local": 0.7020759569509955,
+          "count": 33,
+          "pa_armed": true
+        },
+        "policy": {
+          "allow_opens": false,
+          "allow_pa": false
+        },
+        "notes": "paper-only"
       }
     }
   }

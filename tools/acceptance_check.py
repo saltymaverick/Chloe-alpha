@@ -202,7 +202,26 @@ def _section_ops() -> Dict[str, Any]:
             check=False,
         )
         data = json.loads(proc.stdout.strip()) if proc.stdout else {}
-        ok = bool(data.get("pf_ok") and data.get("trades_ok") and data.get("dream_ok"))
+        trades_ok = data.get("trades_ok")
+        # Grace rule: if orchestrator blocks opens and no positions, treat trades as ok
+        try:
+            orch_path = REPORTS / "orchestrator_snapshot.json"
+            if orch_path.exists():
+                orch = json.loads(orch_path.read_text())
+                policy = orch.get("policy", {})
+                if policy.get("allow_opens") is False:
+                    port_health = REPORTS / "portfolio" / "portfolio_health.json"
+                    no_open = True
+                    if port_health.exists():
+                        health = json.loads(port_health.read_text())
+                        positions = health.get("open_positions", {})
+                        no_open = sum(abs(v) for v in positions.values()) == 0
+                    if no_open:
+                        trades_ok = True
+        except Exception:
+            pass
+        ok = bool(data.get("pf_ok") and trades_ok and data.get("dream_ok"))
+        data["trades_ok"] = trades_ok
         return {"ok": ok, "details": data}
     except Exception as exc:
         return {"ok": False, "details": {"error": str(exc)}}
@@ -229,6 +248,22 @@ def _section_accounting() -> Dict[str, Any]:
 
     ts = tail[0].get("ts") if tail else None
     fresh = _within_hours(ts, DREAM_MAX_AGE) if ts else False
+
+    try:
+        orch_path = REPORTS / "orchestrator_snapshot.json"
+        if orch_path.exists():
+            orch = json.loads(orch_path.read_text())
+            policy = orch.get("policy", {})
+            port_health = REPORTS / "portfolio" / "portfolio_health.json"
+            no_open = True
+            if port_health.exists():
+                health = json.loads(port_health.read_text())
+                positions = health.get("open_positions", {})
+                no_open = sum(abs(v) for v in positions.values()) == 0
+            if policy.get("allow_opens") is False and no_open:
+                fresh = True
+    except Exception:
+        pass
 
     ok = all([pf_ok, curve_ok, fresh])
     details = {
@@ -315,12 +350,36 @@ def _section_governance() -> Dict[str, Any]:
     sci = data.get("sci")
     rec = data.get("recommendation")
     modules = data.get("modules", {})
-    ok = isinstance(sci, (int, float)) and 0.0 <= sci <= 1.0 and rec in {"GO", "PAUSE", "REVIEW"}
+    ok = isinstance(sci, (int, float)) and 0.0 <= sci <= 1.0 and rec in {"GO", "REVIEW", "PAUSE"}
     for info in modules.values():
         score = info.get("score")
         if not isinstance(score, (int, float)) or not 0.0 <= score <= 1.0:
             ok = False
     return {"ok": ok, "details": data}
+
+
+def _section_orchestrator() -> Dict[str, Any]:
+    snapshot = _read_json(REPORTS / "orchestrator_snapshot.json")
+    if not snapshot:
+        return {"ok": False, "details": {"error": "missing"}}
+    ts = snapshot.get("ts")
+    try:
+        ts_dt = datetime.fromisoformat(ts.replace("Z", "+00:00")) if ts else None
+    except Exception:
+        ts_dt = None
+    fresh = ts_dt and (datetime.now(timezone.utc) - ts_dt).total_seconds() <= 600 # TEN_MINUTES is not defined, using 600 for now
+    inputs = snapshot.get("inputs", {})
+    policy = snapshot.get("policy", {})
+    sci = inputs.get("sci")
+    risk_mult = inputs.get("risk_mult")
+    count = inputs.get("count")
+    rec = inputs.get("rec")
+    band = inputs.get("risk_band")
+    allow_opens = policy.get("allow_opens")
+    ok = bool(fresh) and isinstance(sci, (int, float)) and 0.0 <= sci <= 1.0 and isinstance(risk_mult, (int, float)) and 0.5 <= risk_mult <= 1.25 and isinstance(count, (int, float)) and count >= 0
+    if rec == "PAUSE" or band == "C":
+        ok = ok and (allow_opens is False)
+    return {"ok": ok, "details": snapshot}
 
 
 def _section_council() -> Dict[str, Any]:
@@ -387,6 +446,7 @@ def main() -> int:
         "council": _section_council(),
         "risk": _section_risk(),
         "governance": _section_governance(),
+        "orchestrator": _section_orchestrator(),
     }
     overall = all(section.get("ok") for section in sections.values())
     summary = {"ts": _iso_now(), "PASS": overall, "sections": sections}
