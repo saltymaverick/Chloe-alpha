@@ -1,0 +1,2 @@
+Summarize the market tone from recent news headlines into a single score between -1 and +1.
+

@@ -11,6 +11,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List
 
+from engine_alpha.core.gpt_client import load_prompt, query_gpt
 from engine_alpha.core.paths import REPORTS
 
 # Optional dotenv support without hard dependency
@@ -162,12 +163,33 @@ def run_once() -> Dict[str, Any]:
     else:
         recommendation = "REVIEW"
 
+    summary = {
+        "recommendation": recommendation,
+        "sci": _clamp(sci),
+        "modules": {
+            name: {"enabled": data.get("enabled"), "score": data.get("score")}
+            for name, data in modules.items()
+        },
+    }
+
+    prompt_template = load_prompt("governance")
+    if not prompt_template:
+        prompt_template = "Explain the governance outcome."
+    gpt_prompt = f"{prompt_template}\n\nSummary:\n{json.dumps(summary, indent=2)}"
+    gpt_result = query_gpt(gpt_prompt, "governance")
+
     payload = {
         "ts": _now(),
         "modules": modules,
         "sci": _clamp(sci),
         "recommendation": recommendation,
     }
+    if gpt_result:
+        payload["gpt_reason"] = gpt_result.get("text")
+        payload["gpt_cost_usd"] = gpt_result.get("cost_usd")
+        payload["gpt_tokens"] = gpt_result.get("tokens")
+    else:
+        payload["gpt_reason"] = None
 
     VOTE_JSON.write_text(json.dumps(payload, indent=2))
     with VOTE_LOG.open("a") as f:

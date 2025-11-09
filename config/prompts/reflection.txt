@@ -1,0 +1,2 @@
+Summarize why the last N trades performed as they did and what should be adjusted.
+

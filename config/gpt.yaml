@@ -1,0 +1,6 @@
+model: gpt-4-turbo
+max_tokens: 500
+daily_budget_usd: 0.50
+temperature: 0.4
+prompts_dir: "/root/Chloe-alpha/config/prompts"
+

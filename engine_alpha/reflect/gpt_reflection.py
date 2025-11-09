@@ -9,6 +9,7 @@ from typing import Dict, Any, List, Optional
 from datetime import datetime, timezone
 
 from engine_alpha.core.paths import REPORTS
+from engine_alpha.core.gpt_client import load_prompt, query_gpt
 
 
 def _read_trades(trades_path: Path, n: int = 20) -> List[Dict[str, Any]]:
@@ -181,3 +182,59 @@ def calibrate_confidence(current_conf: float, reason_score: float) -> float:
     
     # Clamp to [0, 1]
     return max(0.0, min(1.0, new_conf))
+
+
+def _summarize_trades(trades: List[Dict[str, Any]]) -> Dict[str, Any]:
+    closes = [t for t in trades if t.get("event") == "CLOSE"]
+    wins = [t for t in closes if t.get("pnl_pct", 0.0) > 0]
+    losses = [t for t in closes if t.get("pnl_pct", 0.0) < 0]
+    total_close = len(closes)
+    win_rate = len(wins) / total_close if total_close else 0.0
+    avg_win = sum(t.get("pnl_pct", 0.0) for t in wins) / len(wins) if wins else 0.0
+    avg_loss = sum(t.get("pnl_pct", 0.0) for t in losses) / len(losses) if losses else 0.0
+    recent = closes[-5:]
+    return {
+        "total_trades": len(trades),
+        "closed_trades": total_close,
+        "win_rate": win_rate,
+        "avg_win": avg_win,
+        "avg_loss": avg_loss,
+        "recent_closes": recent,
+    }
+
+
+def run_gpt_reflection(n: int = 20) -> Dict[str, Any]:
+    """
+    Generate GPT-based reflection summary for recent trades.
+    """
+    trades_path = REPORTS / "trades.jsonl"
+    trades = _read_trades(trades_path, n=n)
+    summary = _summarize_trades(trades)
+    prompt_template = load_prompt("reflection")
+    if not prompt_template:
+        prompt_template = "Provide a concise reflection on the provided trades."
+
+    context = {
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "trade_summary": summary,
+    }
+    prompt = f"{prompt_template}\n\nContext:\n{json.dumps(context, indent=2)}"
+    result = query_gpt(prompt, "reflection")
+    ts = datetime.now(timezone.utc).isoformat()
+
+    record = {
+        "ts": ts,
+        "context": context,
+        "summary": result.get("text") if result else None,
+        "cost_usd": result.get("cost_usd") if result else 0.0,
+        "tokens": result.get("tokens") if result else 0,
+    }
+
+    out_path = REPORTS / "gpt_reflection.jsonl"
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    with out_path.open("a") as f:
+        f.write(json.dumps(record) + "\n")
+
+    summary_path = REPORTS / "gpt_summary.json"
+    summary_path.write_text(json.dumps(record, indent=2))
+    return record
