@@ -1,16 +1,16 @@
 {
-  "ts": "2025-11-09T16:50:20.413872+00:00",
+  "ts": "2025-11-09T19:20:02.275372+00:00",
   "inputs": {
-    "sci": 0.5012578585474649,
+    "sci": 0.4910394301119148,
     "rec": "REVIEW",
-    "risk_band": "C",
-    "risk_mult": 0.5,
-    "pf_local": 0.7020759569509955,
-    "count": 33,
-    "pa_armed": true
+    "risk_band": "A",
+    "risk_mult": 1.0,
+    "pf_local": 0.0,
+    "count": 1,
+    "pa_armed": false
   },
   "policy": {
-    "allow_opens": false,
+    "allow_opens": true,
     "allow_pa": false
   },
   "notes": "paper-only"

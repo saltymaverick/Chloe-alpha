@@ -1,0 +1,17 @@
+{
+  "ts": "2025-11-09T19:15:14.713758+00:00",
+  "inputs": {
+    "sci": 0.4910394301119148,
+    "rec": "REVIEW",
+    "risk_band": "C",
+    "risk_mult": 0.5,
+    "pf_local": 0.49534481506268085,
+    "count": 51,
+    "pa_armed": true
+  },
+  "policy": {
+    "allow_opens": false,
+    "allow_pa": false
+  },
+  "notes": "paper-only"
+}

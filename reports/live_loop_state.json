@@ -1,0 +1,15 @@
+{
+  "ts": "2025-11-09T19:00:00+00:00",
+  "symbol": "ETHUSDT",
+  "timeframe": "1h",
+  "policy": {
+    "allow_opens": true,
+    "allow_pa": false
+  },
+  "final": {
+    "dir": -1,
+    "conf": 0.6547885251700244
+  },
+  "risk_band": "A",
+  "heartbeat_ts": "2025-11-09T19:24:08.781795+00:00"
+}

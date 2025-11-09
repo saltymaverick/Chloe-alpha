@@ -1,0 +1,17 @@
+{
+  "ts": "2025-11-09T19:07:50.412225+00:00",
+  "context": {
+    "generated_at": "2025-11-09T19:07:43.398142+00:00",
+    "trade_summary": {
+      "total_trades": 20,
+      "closed_trades": 0,
+      "win_rate": 0.0,
+      "avg_win": 0.0,
+      "avg_loss": 0.0,
+      "recent_closes": []
+    }
+  },
+  "summary": "### Summary of Last N Trades Performance\n\n**Performance Overview:**\n- **Total Trades:** 20\n- **Closed Trades:** 0\n- **Win Rate:** 0.0%\n- **Average Win:** $0.0\n- **Average Loss:** $0.0\n- **Recent Closes:** None\n\n**Analysis:**\n1. **No Closed Trades:** All trades are still open, indicating a lack of execution or a strategy that has not yet realized any outcomes.\n2. **Win Rate of 0.0%:** This suggests that none of the trades have been profitable, which is concerning given the number of trades taken.\n3. **Lack of Data on Wins or Losses:** With no closed trades, there is insufficient data to analyze the effectiveness of the trading strategy.\n\n### Recommendations for Adjustment\n\n1. **Review Trade Strategy:**\n   - Assess the criteria for entering trades. Ensure they align with market conditions and risk management practices.\n   \n2. **Set Exit Strategies:**\n   - Implement clear exit strategies for both winning and losing trades to avoid holding positions indefinitely.\n\n3. **Analyze Open Positions:**\n   - Evaluate the current open trades to determine if they are likely to turn profitable or if they should be closed to minimize losses.\n\n4. **Increase Monitoring:**\n   - Enhance monitoring of trades to facilitate timely decision-making and adjustments based on market movements.\n\n5. **Backtesting and Simulation:**\n   - Conduct backtesting of the trading strategy to identify potential flaws and optimize performance before executing further trades.\n\nBy addressing these areas, the performance of future trades can be improved, potentially increasing the win rate and achieving profitable outcomes.",
+  "cost_usd": 0.0,
+  "tokens": 470
+}

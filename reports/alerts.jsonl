@@ -1,0 +1,2 @@
+{"ts": "2025-11-09T18:56:16.096782+00:00", "level": "warn", "code": "live_loop_stale", "details": {"age_seconds": 3376}}
+{"ts": "2025-11-09T19:00:13.415908+00:00", "level": "warn", "code": "live_loop_stale", "details": {"age_seconds": 3613}}

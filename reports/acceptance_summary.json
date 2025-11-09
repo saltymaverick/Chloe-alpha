@@ -1,5 +1,5 @@
 {
-  "ts": "2025-11-09T15:48:43.719818+00:00",
+  "ts": "2025-11-09T19:02:10.809393+00:00",
   "PASS": true,
   "sections": {
     "feeds": {
@@ -26,10 +26,10 @@
     "pf_pa": {
       "ok": true,
       "details": {
-        "pf_local": 0.7020759569509955,
-        "pf_live": 0.7020759569509955,
+        "pf_local": 0.5762543455515488,
+        "pf_live": 0.5762543455515488,
         "armed": true,
-        "count": 33,
+        "count": 42,
         "gate_consistent": true
       }
     },
@@ -62,7 +62,7 @@
     "ops": {
       "ok": true,
       "details": {
-        "ts": "2025-11-09T15:48:43.708765+00:00",
+        "ts": "2025-11-09T19:02:10.797624+00:00",
         "pf_ok": true,
         "trades_ok": true,
         "dream_ok": true,
@@ -72,10 +72,10 @@
     "accounting": {
       "ok": true,
       "details": {
-        "pf_adj_live": 0.6870724202121381,
-        "pf_adj_local": 0.6870724202121381,
-        "points": 15,
-        "fresh_hours": 0.0,
+        "pf_adj_live": 0.5629849191345596,
+        "pf_adj_local": 0.5629849191345596,
+        "points": 19,
+        "fresh_hours": 0.99,
         "curve_ok": true,
         "pf_ok": true,
         "fresh": true
@@ -227,10 +227,10 @@
     "risk": {
       "ok": true,
       "details": {
-        "ts": "2025-11-09T15:48:43.441709+00:00",
-        "equity": 5556.8335418119805,
+        "ts": "2025-11-09T19:00:13.642032+00:00",
+        "equity": 4043.896800160227,
         "peak": 9664.82661135739,
-        "drawdown": 0.42504570798176555,
+        "drawdown": 0.5815862029632132,
         "band": "C",
         "mult": 0.5,
         "reason": "computed"
@@ -239,7 +239,7 @@
     "governance": {
       "ok": true,
       "details": {
-        "ts": "2025-11-07T22:07:12.841099+00:00",
+        "ts": "2025-11-09T18:57:47.253993+00:00",
         "modules": {
           "dream": {
             "enabled": true,
@@ -258,25 +258,28 @@
           },
           "mirror": {
             "enabled": true,
-            "score": 0.698952829562487,
+            "score": 0.6580791158202868,
             "note": "portfolio PF/1.5"
           }
         },
-        "sci": 0.5012578585474649,
-        "recommendation": "REVIEW"
+        "sci": 0.4910394301119148,
+        "recommendation": "REVIEW",
+        "gpt_reason": "The system chose \"REVIEW\" based on the following analysis of the scores provided:\n\n### Scores Breakdown:\n1. **Overall Recommendation**: REVIEW\n   - The overall score (sci) is 0.491, which is below the threshold typically required for a \"GO\" recommendation but above the threshold for \"PAUSE.\"\n\n2. **Module Scores**:\n   - **Dream**: 0.5 (Enabled)\n   - **Evolver**: 0.5 (Enabled)\n   - **Sandbox**: 0.306 (Enabled)\n   - **Mirror**: 0.658 (Enabled)\n\n### Analysis:\n- **Thresholds**: The system likely uses specific thresholds for recommendations:\n  - Scores above a certain level (e.g., 0.6) might lead to a \"GO.\"\n  - Scores below a certain level (e.g., 0.4) might lead to a \"PAUSE.\"\n  \n- **Module Performance**:\n  - The \"Mirror\" module has the highest score (0.658), indicating strong performance.\n  - The \"Dream\" and \"Evolver\" modules are at the threshold (0.5), suggesting they are acceptable but not outstanding.\n  - The \"Sandbox\" module has a low score (0.306), indicating potential issues or weaknesses.\n\n### Conclusion:\nThe recommendation to \"REVIEW\" is appropriate due to the mixed performance across modules, particularly the low score from the \"Sandbox\" module, which may require further evaluation before proceeding. The overall score does not support a confident \"GO\" decision, hence the choice to \"REVIEW\" for further assessment.",
+        "gpt_cost_usd": 0.0,
+        "gpt_tokens": 507
       }
     },
     "orchestrator": {
       "ok": true,
       "details": {
-        "ts": "2025-11-09T15:48:43.572722+00:00",
+        "ts": "2025-11-09T19:00:13.430379+00:00",
         "inputs": {
-          "sci": 0.5012578585474649,
+          "sci": 0.4910394301119148,
           "rec": "REVIEW",
           "risk_band": "C",
           "risk_mult": 0.5,
-          "pf_local": 0.7020759569509955,
-          "count": 33,
+          "pf_local": 0.5762543455515488,
+          "count": 42,
           "pa_armed": true
         },
         "policy": {
@@ -284,6 +287,53 @@
           "allow_pa": false
         },
         "notes": "paper-only"
+      }
+    },
+    "backtest": {
+      "ok": true,
+      "optional": true,
+      "details": {
+        "count": 3,
+        "last_dir": "ETHUSDT_1h_20240101000000_20240201000000/20251109-185703",
+        "last_ts": "2025-11-09T18:57:04.659467+00:00",
+        "last_symbol": "ETHUSDT",
+        "last_tag": ""
+      }
+    },
+    "alerts": {
+      "ok": true,
+      "optional": true,
+      "details": {
+        "last_ts": "2025-11-09T19:00:13.415908+00:00",
+        "last_codes": [
+          "live_loop_stale",
+          "live_loop_stale"
+        ]
+      }
+    },
+    "live_feeds": {
+      "ok": true,
+      "optional": true,
+      "details": {
+        "feeds_health": true,
+        "symbols": [
+          {
+            "symbol": "ETHUSDT",
+            "rows": 200,
+            "fresh": true,
+            "last_ts": "2025-11-09T19:00:00+00:00",
+            "host": "https://api.binance.us"
+          }
+        ]
+      }
+    },
+    "live_loop": {
+      "ok": true,
+      "optional": true,
+      "details": {
+        "ts": "2025-11-09T19:00:00+00:00",
+        "symbol": "ETHUSDT",
+        "timeframe": "1h"
       }
     }
   }

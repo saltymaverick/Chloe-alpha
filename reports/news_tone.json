@@ -1,5 +1,5 @@
 {
-  "ts": "2025-11-07T20:01:25.880921+00:00",
-  "tone": -0.5,
-  "rationale": "Market shows strong bullish sentiment with institutional buying pressure."
+  "ts": "2025-11-09T17:47:24.205263+00:00",
+  "score": 0.0,
+  "reason": "Market Tone Score: 0.0\n\n**Rationale:**\n- Mixed market signals indicate uncertainty (-0.5).\n- Steady crypto inflows suggest positive sentiment (+0.5).\n- Uncertain regulatory outlook adds caution (-0.5).\n\nOverall, these factors balance each other out, resulting in a neutral score."
 }
