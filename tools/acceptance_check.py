@@ -474,6 +474,23 @@ def _section_live_feeds() -> Dict[str, Any]:
     return {"ok": ok, "optional": True, "details": details}
 
 
+def _section_live_loop() -> Dict[str, Any]:
+    state_path = REPORTS / "live_loop_state.json"
+    if not state_path.exists():
+        return {"ok": False, "optional": True, "details": {"reason": "missing"}}
+    state = _read_json(state_path)
+    ts = state.get("ts")
+    fresh = _within_hours(ts, timedelta(hours=2)) if ts else False
+    details = {
+        "ts": ts,
+        "symbol": state.get("symbol"),
+        "timeframe": state.get("timeframe"),
+    }
+    if not fresh:
+        details["reason"] = "stale"
+    return {"ok": fresh, "optional": True, "details": details}
+
+
 def _section_sandbox() -> Dict[str, Any]:
     status_path = REPORTS / "sandbox" / "sandbox_status.json"
     runs_path = REPORTS / "sandbox" / "sandbox_runs.jsonl"
@@ -515,6 +532,7 @@ def main() -> int:
         "orchestrator": _section_orchestrator(),
         "backtest": _section_backtest(),
         "live_feeds": _section_live_feeds(),
+        "live_loop": _section_live_loop(),
     }
     blocking_sections = {
         name: section for name, section in sections.items() if not section.get("optional")

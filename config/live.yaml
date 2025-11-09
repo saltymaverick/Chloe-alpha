@@ -1,0 +1,7 @@
+live:
+  symbols:
+    - ETHUSDT
+  timeframe: "1h"
+  interval_sec: 60
+  limit: 200
+
