@@ -109,6 +109,7 @@ def overview_tab():
     pf_local = load_json(REPORTS / "pf_local.json")
     pf_local_adj = load_json(REPORTS / "pf_local_adj.json")
     pa_status = load_json(REPORTS / "pa_status.json")
+    orch = load_json(REPORTS / "orchestrator_snapshot.json")
     equity_tail = load_jsonl_tail(REPORTS / "equity_curve.jsonl", lines=1)
     last_equity = get_value(equity_tail[0], "equity", default="N/A") if equity_tail else "N/A"
 
@@ -117,6 +118,21 @@ def overview_tab():
     col_adj.metric("PF Local Adj", get_value(pf_local_adj, "pf", default="N/A"))
     col_pa.metric("PA Armed", str(get_value(pa_status, "armed", default="N/A")))
     col_equity.metric("Last Equity", last_equity)
+
+    policy_inputs = orch.get("inputs", {}) if orch else {}
+    policy_flags = orch.get("policy", {}) if orch else {}
+    rec = policy_inputs.get("rec", "N/A")
+    band = policy_inputs.get("risk_band", "N/A")
+    mult = policy_inputs.get("risk_mult", "N/A")
+    allow_opens = policy_flags.get("allow_opens") if isinstance(policy_flags.get("allow_opens"), bool) else None
+    allow_pa = policy_flags.get("allow_pa") if isinstance(policy_flags.get("allow_pa"), bool) else None
+
+    rec_color = {"GO": "green", "REVIEW": "orange", "PAUSE": "red"}.get(rec, "gray")
+    st.markdown("**Policy**")
+    st.markdown(f"**REC:** :{rec_color}[{rec}]   **Risk:** {band}   **mult:** {mult}")
+    opens_mark = "✅" if allow_opens is True else ("❌" if allow_opens is False else "N/A")
+    pa_mark = "✅" if allow_pa is True else ("❌" if allow_pa is False else "N/A")
+    st.markdown(f"**Opens:** {opens_mark}   **PA:** {pa_mark}")
 
     df = load_equity_df()
     if df is not None and not df.empty:
