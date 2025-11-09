@@ -187,6 +187,21 @@ def safe_text(path: Path, lines: int = 3) -> str:
         return ""
 
 
+def safe_last_line(path: Path) -> Optional[str]:
+    if not path.exists():
+        return None
+    try:
+        with path.open("r") as f:
+            lines = f.readlines()
+    except Exception:
+        return None
+    for line in reversed(lines):
+        text = line.strip()
+        if text:
+            return text
+    return None
+
+
 def get_value(data: Optional[Dict[str, Any]], *keys, default=None):
     cur: Any = data or {}
     for key in keys:
@@ -221,8 +236,106 @@ def _truncate_text(text: str, limit: int = 600) -> tuple[str, bool]:
     return text[:limit].rstrip() + "…", True
 
 
-def overview_tab():
+def _compute_heartbeat() -> Dict[str, Any]:
+    now_utc = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%SZ")
+    policy_dt = parse_ts_to_dt(get_value(load_json(REPORTS / "orchestrator_snapshot.json"), "ts"))
+    live_dt = parse_ts_to_dt(get_value(load_json(REPORTS / "live_loop_state.json"), "ts"))
+    trade_tail = jsonl_tail(REPORTS / "trades.jsonl", n=1)
+    trade_dt = parse_ts_to_dt(trade_tail[0].get("ts")) if trade_tail else None
+    dream_tail = jsonl_tail(REPORTS / "dream_log.jsonl", n=1)
+    dream_dt = parse_ts_to_dt(dream_tail[0].get("ts")) if dream_tail else None
+    return {
+        "now": now_utc,
+        "policy_dt": policy_dt,
+        "live_dt": live_dt,
+        "trade_dt": trade_dt,
+        "dream_dt": dream_dt,
+    }
+
+
+def _render_global_banner(heartbeat: Optional[Dict[str, Any]]) -> None:
+    heartbeat = heartbeat or {}
+    last_updated = heartbeat.get("now") or datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%SZ")
+    st.markdown(f"**Last updated:** {last_updated}")
+    hb_cols = st.columns(4)
+    for col, (label, dt_val) in zip(
+        hb_cols,
+        [
+            ("Policy", heartbeat.get("policy_dt")),
+            ("Live", heartbeat.get("live_dt")),
+            ("Trade", heartbeat.get("trade_dt")),
+            ("Dream", heartbeat.get("dream_dt")),
+        ],
+    ):
+        color = color_for_age(age_seconds(dt_val))
+        with col:
+            small_ui_chip(label, format_dt(dt_val), color)
+
+
+def _compute_activity_entries() -> List[Dict[str, str]]:
+    sources = [
+        ("Orchestrator", REPORTS / "orchestrator_log.jsonl"),
+        ("Sandbox", REPORTS / "sandbox" / "sandbox_runs.jsonl"),
+        ("Alerts", REPORTS / "alerts.jsonl"),
+        ("Ops", LOGS / "ops.log"),
+    ]
+    entries: List[Dict[str, str]] = []
+    for label, path in sources:
+        line = safe_last_line(path)
+        if line:
+            entries.append({"Source": label, "Entry": line})
+    return entries
+
+
+def _render_activity_feed(entries: Optional[List[Dict[str, str]]]) -> None:
+    st.caption("Activity Feed")
+    if not entries:
+        st.caption("No recent activity recorded.")
+        return
+    df = pd.DataFrame(entries)
+    st.table(df)
+
+
+def _render_policy_banner(orchestrator: Optional[Dict[str, Any]], risk: Optional[Dict[str, Any]]) -> None:
+    st.subheader("Policy Status")
+    if not orchestrator:
+        st.info("Orchestrator snapshot unavailable.")
+        return
+    inputs = orchestrator.get("inputs", {}) if isinstance(orchestrator, dict) else {}
+    policy = orchestrator.get("policy", {}) if isinstance(orchestrator, dict) else {}
+    rec = inputs.get("rec", "N/A")
+    sci = inputs.get("sci")
+    allow_opens = policy.get("allow_opens")
+    allow_pa = policy.get("allow_pa")
+    band = risk.get("band") if isinstance(risk, dict) else None
+    mult = risk.get("mult") if isinstance(risk, dict) else None
+    color_map = {"GO": "green", "REVIEW": "orange", "PAUSE": "red"}
+    rec_color = color_map.get(str(rec).upper(), "gray")
+
+    def allow_icon(flag: Any) -> str:
+        if flag is True:
+            return "✅"
+        if flag is False:
+            return "❌"
+        return "N/A"
+
+    cols = st.columns(5)
+    cols[0].markdown(f"**REC:** :{rec_color}[{rec or 'N/A'}]")
+    cols[1].markdown(f"**SCI:** {sci if isinstance(sci, (int, float)) else 'N/A'}")
+    cols[2].markdown(f"**Band:** {band or 'N/A'}")
+    cols[3].markdown(f"**Mult:** {mult if isinstance(mult, (int, float)) else 'N/A'}")
+    cols[4].markdown(
+        f"**Policy:** opens {allow_icon(allow_opens)} | PA {allow_icon(allow_pa)}"
+    )
+
+
+def overview_tab(ctx: Optional[Dict[str, Any]] = None):
+    if ctx:
+        _render_global_banner(ctx.get("heartbeat"))
+        _render_activity_feed(ctx.get("activity"))
     st.header("Overview")
+    if ctx:
+        _render_policy_banner(ctx.get("orchestrator"), ctx.get("risk"))
 
     orch = load_json(REPORTS / "orchestrator_snapshot.json")
 
@@ -302,7 +415,10 @@ def overview_tab():
                 st.error("Acceptance check timed out")
 
 
-def portfolio_tab():
+def portfolio_tab(ctx: Optional[Dict[str, Any]] = None):
+    if ctx:
+        _render_global_banner(ctx.get("heartbeat"))
+        _render_activity_feed(ctx.get("activity"))
     st.header("Portfolio")
     portfolio_dir = REPORTS / "portfolio"
 
@@ -342,7 +458,10 @@ def portfolio_tab():
         st.info("No ETHUSDT trades logged yet")
 
 
-def backtest_tab():
+def backtest_tab(ctx: Optional[Dict[str, Any]] = None):
+    if ctx:
+        _render_global_banner(ctx.get("heartbeat"))
+        _render_activity_feed(ctx.get("activity"))
     st.header("Backtest")
 
     bt_dir = REPORTS / "backtest"
@@ -376,7 +495,7 @@ def backtest_tab():
             runs = []
 
     if not runs:
-        st.info("No backtest runs recorded under /reports/backtest yet.")
+        st.info(f"No backtest runs recorded under {REPORTS / 'backtest'} yet.")
         return
 
     runs.sort(key=lambda item: item.get("ts", ""), reverse=True)
@@ -462,7 +581,10 @@ def backtest_tab():
         st.info("No trades recorded in this backtest run.")
 
 
-def intelligence_tab():
+def intelligence_tab(ctx: Optional[Dict[str, Any]] = None):
+    if ctx:
+        _render_global_banner(ctx.get("heartbeat"))
+        _render_activity_feed(ctx.get("activity"))
     st.header("Intelligence")
     cols = st.columns(3)
 
@@ -487,7 +609,10 @@ def intelligence_tab():
             st.write("No tune data yet")
 
 
-def feeds_tab():
+def feeds_tab(ctx: Optional[Dict[str, Any]] = None):
+    if ctx:
+        _render_global_banner(ctx.get("heartbeat"))
+        _render_activity_feed(ctx.get("activity"))
     st.header("Feeds & Health")
     snapshot = load_json(REPORTS / "feeds_snapshot.json")
     if snapshot:
@@ -513,7 +638,10 @@ def feeds_tab():
         st.code(ops_tail)
 
 
-def reasoning_tab():
+def reasoning_tab(ctx: Optional[Dict[str, Any]] = None):
+    if ctx:
+        _render_global_banner(ctx.get("heartbeat"))
+        _render_activity_feed(ctx.get("activity"))
     st.header("Reasoning")
     if "gpt_snapshot_output" in st.session_state:
         with st.expander("GPT Snapshot Output"):
@@ -592,7 +720,10 @@ def reasoning_tab():
         st.info("No governance log entries yet.")
 
 
-def sandbox_tab():
+def sandbox_tab(ctx: Optional[Dict[str, Any]] = None):
+    if ctx:
+        _render_global_banner(ctx.get("heartbeat"))
+        _render_activity_feed(ctx.get("activity"))
     st.header("Sandbox")
     runs_path = REPORTS / "sandbox" / "sandbox_runs.jsonl"
     status_path = REPORTS / "sandbox" / "sandbox_status.json"
@@ -660,27 +791,15 @@ def main():
     if st.sidebar.button("Refresh now"):
         st.rerun()
 
-    policy_dt = parse_ts_to_dt(get_value(load_json(REPORTS / "orchestrator_snapshot.json"), "ts"))
-    live_dt = parse_ts_to_dt(get_value(load_json(REPORTS / "live_loop_state.json"), "ts"))
-    trade_tail = jsonl_tail(REPORTS / "trades.jsonl", n=1)
-    trade_dt = parse_ts_to_dt(trade_tail[0].get("ts")) if trade_tail else None
-    dream_tail = jsonl_tail(REPORTS / "dream_log.jsonl", n=1)
-    dream_dt = parse_ts_to_dt(dream_tail[0].get("ts")) if dream_tail else None
-
-    hb_cols = st.columns(4)
-    for col, (label, dt_val) in zip(
-        hb_cols,
-        [
-            ("Policy", policy_dt),
-            ("Live", live_dt),
-            ("Trade", trade_dt),
-            ("Dream", dream_dt),
-        ],
-    ):
-        color = color_for_age(age_seconds(dt_val))
-        small_ui_chip(label, format_dt(dt_val), color)
     st.title("Alpha Chloe Dashboard")
     st.caption("Read-only metrics with health analytics")
+
+    dashboard_ctx = {
+        "heartbeat": _compute_heartbeat(),
+        "activity": _compute_activity_entries(),
+        "orchestrator": load_json(REPORTS / "orchestrator_snapshot.json"),
+        "risk": load_json(REPORTS / "risk_adapter.json"),
+    }
 
     (
         tab_overview,
@@ -694,25 +813,19 @@ def main():
         ["Overview", "Portfolio", "Backtest", "Intelligence", "Reasoning", "Feeds/Health", "Sandbox"]
     )
     with tab_overview:
-        overview_tab()
+        overview_tab(dashboard_ctx)
     with tab_portfolio:
-        portfolio_tab()
+        portfolio_tab(dashboard_ctx)
     with tab_backtest:
-        backtest_tab()
+        backtest_tab(dashboard_ctx)
     with tab_intelligence:
-        intelligence_tab()
+        intelligence_tab(dashboard_ctx)
     with tab_reasoning:
-        reasoning_tab()
+        reasoning_tab(dashboard_ctx)
     with tab_feeds:
-        feeds_tab()
+        feeds_tab(dashboard_ctx)
     with tab_sandbox:
-        sandbox_tab()
-
-    st.write("Last refresh:", _now())
-    try:
-        st.query_params = {"ts": str(int(time.time()))}
-    except Exception:
-        pass
+        sandbox_tab(dashboard_ctx)
 
     interval_ms = REFRESH_OPTIONS.get(refresh_choice, 0) or 0
     if interval_ms > 0:
