@@ -203,6 +203,121 @@ def _summarize_trades(trades: List[Dict[str, Any]]) -> Dict[str, Any]:
     }
 
 
+def _mean(values: List[float]) -> Optional[float]:
+    filtered = [float(v) for v in values if isinstance(v, (int, float))]
+    if not filtered:
+        return None
+    return sum(filtered) / len(filtered)
+
+
+def _parse_ts(ts: Any) -> Optional[datetime]:
+    if not isinstance(ts, str) or not ts:
+        return None
+    candidate = ts.strip()
+    try:
+        if candidate.endswith("Z"):
+            candidate = candidate[:-1] + "+00:00"
+        return datetime.fromisoformat(candidate)
+    except Exception:
+        return None
+
+
+def _summarize_open_positions(trades_path: Path, lookback: int = 100) -> Dict[str, Any]:
+    events = _read_trades(trades_path, lookback)
+    if not events:
+        return {"open_count": 0}
+    # Process in chronological order
+    try:
+        events = sorted(events, key=lambda t: t.get("ts", ""))
+    except Exception:
+        pass
+    active: List[Dict[str, Any]] = []
+    for event in events:
+        event_type = str(event.get("type") or event.get("event") or "").lower()
+        if event_type == "open":
+            active.append(event)
+        elif event_type == "close":
+            if active:
+                active.pop()
+    now = datetime.now(timezone.utc)
+    long_count = 0
+    short_count = 0
+    conf_values: List[float] = []
+    risk_mult_values: List[float] = []
+    bar_estimates: List[float] = []
+    last_open_ts: Optional[str] = None
+    for position in active:
+        direction = position.get("dir")
+        if isinstance(direction, (int, float)):
+            if float(direction) > 0:
+                long_count += 1
+            elif float(direction) < 0:
+                short_count += 1
+        conf = position.get("conf") or position.get("confidence")
+        if isinstance(conf, (int, float)):
+            conf_values.append(float(conf))
+        risk_mult = position.get("risk_mult")
+        if isinstance(risk_mult, (int, float)):
+            risk_mult_values.append(float(risk_mult))
+        ts = position.get("ts")
+        if isinstance(ts, str):
+            last_open_ts = ts if (last_open_ts is None or ts > last_open_ts) else last_open_ts
+            dt = _parse_ts(ts)
+            if dt:
+                hours_open = (now - dt).total_seconds() / 3600.0
+                if hours_open >= 0:
+                    bar_estimates.append(hours_open)
+    summary: Dict[str, Any] = {
+        "open_count": len(active),
+        "by_dir": {"long": long_count, "short": short_count},
+    }
+    avg_conf = _mean(conf_values)
+    if avg_conf is not None:
+        summary["avg_conf"] = avg_conf
+    avg_risk_mult = _mean(risk_mult_values)
+    if avg_risk_mult is not None:
+        summary["avg_risk_mult"] = avg_risk_mult
+    avg_bars_open = _mean(bar_estimates)
+    if avg_bars_open is not None:
+        summary["avg_bars_open"] = avg_bars_open
+    if last_open_ts:
+        summary["last_open_ts"] = last_open_ts
+    return summary
+
+
+def _load_policy_context() -> Dict[str, Any]:
+    snapshot_path = REPORTS / "orchestrator_snapshot.json"
+    risk_path = REPORTS / "risk_adapter.json"
+    context: Dict[str, Any] = {}
+    try:
+        snapshot = json.loads(snapshot_path.read_text()) if snapshot_path.exists() else {}
+    except Exception:
+        snapshot = {}
+    try:
+        risk = json.loads(risk_path.read_text()) if risk_path.exists() else {}
+    except Exception:
+        risk = {}
+
+    if snapshot:
+        inputs = snapshot.get("inputs", {}) if isinstance(snapshot, dict) else {}
+        policy = snapshot.get("policy", {}) if isinstance(snapshot, dict) else {}
+        context.update(
+            {
+                "rec": inputs.get("rec"),
+                "allow_opens": policy.get("allow_opens"),
+                "allow_pa": policy.get("allow_pa"),
+            }
+        )
+    if risk:
+        context.update(
+            {
+                "band": risk.get("band"),
+                "mult": risk.get("mult"),
+            }
+        )
+    return context
+
+
 def run_gpt_reflection(n: int = 20) -> Dict[str, Any]:
     """
     Generate GPT-based reflection summary for recent trades.
@@ -218,7 +333,21 @@ def run_gpt_reflection(n: int = 20) -> Dict[str, Any]:
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "trade_summary": summary,
     }
-    prompt = f"{prompt_template}\n\nContext:\n{json.dumps(context, indent=2)}"
+    open_summary: Optional[Dict[str, Any]] = None
+    policy_context: Optional[Dict[str, Any]] = None
+    if summary.get("closed_trades", 0) == 0:
+        open_summary = _summarize_open_positions(trades_path)
+        policy_context = _load_policy_context()
+        if open_summary:
+            context["open_positions"] = open_summary
+        if policy_context:
+            context["policy"] = policy_context
+        prompt = (
+            f"{prompt_template}\n\nNO CLOSED TRADES — SUMMARIZE OPEN POSITIONS\n"
+            f"{json.dumps(open_summary or {}, indent=2)}\nPolicy:\n{json.dumps(policy_context or {}, indent=2)}"
+        )
+    else:
+        prompt = f"{prompt_template}\n\nContext:\n{json.dumps(context, indent=2)}"
     result = query_gpt(prompt, "reflection")
     ts = datetime.now(timezone.utc).isoformat()
 
