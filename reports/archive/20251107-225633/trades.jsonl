@@ -1,0 +1,9 @@
+{"ts": "2025-11-07T22:53:26Z", "type": "open", "dir": -1, "pct": 0.0, "risk_mult": 1.0, "risk_factors": {"pa": 1.0, "adapter": 1.0, "band": "A"}}
+{"ts": "2025-11-07T22:53:26Z", "type": "close", "pct": -0.06511744944243522, "fee_bps": 12.0, "slip_bps": 2.0}
+{"ts": "2025-11-07T22:53:27Z", "type": "open", "dir": 1, "pct": 0.0, "risk_mult": 1.0, "risk_factors": {"pa": 1.0, "adapter": 1.0, "band": "A"}}
+{"ts": "2025-11-07T22:53:27Z", "type": "open", "dir": -1, "pct": 0.0, "risk_mult": 1.0, "risk_factors": {"pa": 1.0, "adapter": 1.0, "band": "A"}}
+{"ts": "2025-11-07T22:53:27Z", "type": "close", "pct": 0.00019098202085854506, "fee_bps": 12.0, "slip_bps": 2.0}
+{"ts": "2025-11-07T22:53:27Z", "type": "open", "dir": 1, "pct": 0.0, "risk_mult": 1.0, "risk_factors": {"pa": 1.0, "adapter": 1.0, "band": "A"}}
+{"ts": "2025-11-07T22:53:27Z", "type": "close", "pct": 0.038004883415389816, "fee_bps": 12.0, "slip_bps": 2.0}
+{"ts": "2025-11-07T22:53:27Z", "type": "open", "dir": 1, "pct": 0.0, "risk_mult": 1.0, "risk_factors": {"pa": 1.0, "adapter": 1.0, "band": "A"}}
+{"ts": "2025-11-07T22:53:27Z", "type": "close", "pct": -0.2456283770631903, "fee_bps": 12.0, "slip_bps": 2.0}

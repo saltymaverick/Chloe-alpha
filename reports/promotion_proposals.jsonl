@@ -1,0 +1,3 @@
+{"ts": "2025-11-07T20:20:06.393470+00:00", "child": "Echo-058-046-050", "pf_cf": 2.1282380530349396, "uplift": 1.211571651339002, "baseline": 0.9166664016959377, "trades": 27, "recommendation": "HOLD", "reason": "insufficient uplift or trades"}
+{"ts": "2025-11-07T20:30:34.852990+00:00", "child": "Echo-058-046-050", "pf_cf": 2.1282380530349396, "uplift": 1.211571651339002, "baseline": 0.9166664016959377, "trades": 27, "recommendation": "HOLD", "reason": "insufficient uplift or trades"}
+{"ts": "2025-11-07T20:32:32.069008+00:00", "child": "Echo-058-046-050", "pf_cf": 2.1282380530349396, "uplift": 1.211571651339002, "baseline": 0.9166664016959377, "trades": 27, "recommendation": "PROMOTE", "reason": "meets_criteria"}

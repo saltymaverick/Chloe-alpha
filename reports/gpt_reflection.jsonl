@@ -2,3 +2,7 @@
 {"ts": "2025-11-07T09:11:53.747112+00:00", "pf": 1.0, "pf_delta": 0.0, "n_trades": 16, "insight": "PF changed by 0.0000. Trading performance declined.", "confidence_adjust": {"mean": 0.0, "sd": 0.0}}
 {"ts": "2025-11-07T09:13:30.231053+00:00", "pf": 1.0, "pf_delta": 0.0, "n_trades": 16, "insight": "PF changed by 0.0000. Trading performance declined.", "confidence_adjust": {"mean": 0.0, "sd": 0.0}}
 {"ts": "2025-11-07T09:13:30.231643+00:00", "pf": 1.0, "pf_delta": 0.0, "n_trades": 16, "insight": "PF changed by 0.0000. Trading performance declined.", "confidence_adjust": {"mean": 0.0, "sd": 0.0}}
+{"ts": "2025-11-07T20:00:09.276627+00:00", "pf": 1.0, "pf_delta": 0.0, "n_trades": 20, "insight": "PF changed by 0.0000. Trading performance declined.", "confidence_adjust": {"mean": 0.0, "sd": 0.0}}
+{"ts": "2025-11-07T20:00:09.277348+00:00", "pf": 1.0, "pf_delta": 0.0, "n_trades": 20, "insight": "PF changed by 0.0000. Trading performance declined.", "confidence_adjust": {"mean": 0.0, "sd": 0.0}}
+{"ts": "2025-11-07T20:01:25.879399+00:00", "pf": 1.0, "pf_delta": 0.0, "n_trades": 20, "insight": "PF changed by 0.0000. Trading performance declined.", "confidence_adjust": {"mean": 0.0, "sd": 0.0}}
+{"ts": "2025-11-07T20:01:25.880275+00:00", "pf": 1.0, "pf_delta": 0.0, "n_trades": 20, "insight": "PF changed by 0.0000. Trading performance declined.", "confidence_adjust": {"mean": 0.0, "sd": 0.0}}

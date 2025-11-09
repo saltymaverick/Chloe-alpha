@@ -1,0 +1,14 @@
+{
+  "armed": false,
+  "last_change_ts": "2025-11-07T22:52:19Z",
+  "reason": "init_reset",
+  "pf_local": 0.12291674474204688,
+  "pf_live": 0.12291674474204688,
+  "count": 18,
+  "gates_triplet": [
+    0.08,
+    0.05,
+    180
+  ],
+  "safe_mode": false
+}

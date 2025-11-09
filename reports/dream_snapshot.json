@@ -1,9 +1,9 @@
 {
-  "ts": "2025-11-07T19:08:02.875914+00:00",
-  "pf_local": 1.3673927750055128,
+  "ts": "2025-11-09T15:18:07.890761+00:00",
+  "pf_local": 0.9245711867815269,
   "baseline_pf_cf": 0.9313621801726896,
   "best_pf_cf": 1.0162479617584246,
-  "proposal_kind": "hold",
+  "proposal_kind": "update_gates",
   "best_combo": {
     "entry_min": 0.5933333333333333,
     "exit_min": 0.42,

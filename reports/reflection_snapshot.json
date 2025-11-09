@@ -1,13 +1,13 @@
 {
-  "timestamp": "2025-11-07T09:13:30.231053+00:00",
+  "timestamp": "2025-11-07T20:01:25.879399+00:00",
   "safety": {
-    "safe_mode": true
+    "safe_mode": false
   },
   "reflection": {
-    "ts": "2025-11-07T09:13:30.231053+00:00",
+    "ts": "2025-11-07T20:01:25.879399+00:00",
     "pf": 1.0,
     "pf_delta": 0.0,
-    "n_trades": 16,
+    "n_trades": 20,
     "insight": "PF changed by 0.0000. Trading performance declined.",
     "confidence_adjust": {
       "mean": 0.0,
@@ -15,8 +15,8 @@
     }
   },
   "news_tone": {
-    "ts": "2025-11-07T09:13:30.231954+00:00",
-    "tone": -1.0,
+    "ts": "2025-11-07T20:01:25.880921+00:00",
+    "tone": -0.5,
     "rationale": "Market shows strong bullish sentiment with institutional buying pressure."
   }
 }

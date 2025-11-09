@@ -1,5 +1,5 @@
 {
-  "ts": "2025-11-07T19:37:30.807711+00:00",
+  "ts": "2025-11-07T23:01:43.924720+00:00",
   "PASS": true,
   "sections": {
     "feeds": {
@@ -26,20 +26,20 @@
     "pf_pa": {
       "ok": true,
       "details": {
-        "pf_local": 1.0769679487005233,
-        "pf_live": 1.0769679487005233,
+        "pf_local": 0.9245711867815269,
+        "pf_live": 0.9245711867815269,
         "armed": true,
-        "count": 64,
+        "count": 24,
         "gate_consistent": true
       }
     },
     "portfolio": {
       "ok": true,
       "details": {
-        "portfolio_pf": 1.0484292443437306,
-        "corr_blocks": 5,
+        "portfolio_pf": 0.9871186737304302,
+        "corr_blocks": 6,
         "exposure_blocks": 0,
-        "net_exposure": -1,
+        "net_exposure": 1,
         "cap": 2,
         "exposure_ok": true,
         "blocks_ok": true
@@ -48,7 +48,7 @@
     "dream": {
       "ok": true,
       "details": {
-        "ts": "2025-11-07T19:08:02.875914+00:00",
+        "ts": "2025-11-07T22:54:50.890716+00:00",
         "fresh": true,
         "proposal_present": true
       }
@@ -62,7 +62,7 @@
     "ops": {
       "ok": true,
       "details": {
-        "ts": "2025-11-07T19:37:30.797258+00:00",
+        "ts": "2025-11-07T23:01:43.914706+00:00",
         "pf_ok": true,
         "trades_ok": true,
         "dream_ok": true,
@@ -72,13 +72,198 @@
     "accounting": {
       "ok": true,
       "details": {
-        "pf_adj_live": 1.0524442995156587,
-        "pf_adj_local": 1.0524442995156587,
-        "points": 29,
-        "fresh_hours": 0.09,
+        "pf_adj_live": 0.9066197079975409,
+        "pf_adj_local": 0.9066197079975409,
+        "points": 11,
+        "fresh_hours": 0.03,
         "curve_ok": true,
         "pf_ok": true,
         "fresh": true
+      }
+    },
+    "confidence": {
+      "ok": true,
+      "details": [
+        {
+          "regime": "trend",
+          "baseline": 0.58,
+          "delta": 0.0,
+          "new_gate": 0.58,
+          "valid": true
+        },
+        {
+          "regime": "chop",
+          "baseline": 0.64,
+          "delta": 0.0,
+          "new_gate": 0.64,
+          "valid": true
+        },
+        {
+          "regime": "high_vol",
+          "baseline": 0.62,
+          "delta": 0.0,
+          "new_gate": 0.62,
+          "valid": true
+        }
+      ]
+    },
+    "promotion": {
+      "ok": true,
+      "details": {
+        "ts": "2025-11-07T20:32:32.069008+00:00",
+        "child": "Echo-058-046-050",
+        "pf_cf": 2.1282380530349396,
+        "uplift": 1.211571651339002,
+        "baseline": 0.9166664016959377,
+        "trades": 27,
+        "recommendation": "PROMOTE",
+        "reason": "meets_criteria"
+      }
+    },
+    "sandbox": {
+      "ok": true,
+      "details": {
+        "states": {
+          "sbx-20251107-203238-Echo-058-046": "complete"
+        },
+        "invalid": {},
+        "last_run": [
+          {
+            "id": "sbx-20251107-203238-Echo-058-046",
+            "child": "Echo-058-046-050",
+            "steps": 200,
+            "pf_adj": 0.6121572092547449,
+            "wins": 0.24807159320135228,
+            "losses": 0.40524164291614023,
+            "ts": "2025-11-07T20:32:39.567102+00:00",
+            "state": "complete"
+          }
+        ]
+      }
+    },
+    "council": {
+      "ok": true,
+      "details": {
+        "trend": {
+          "sum": 1.0,
+          "buckets": {
+            "momentum": {
+              "weight": 0.46,
+              "delta": 0.01
+            },
+            "meanrev": {
+              "weight": 0.1,
+              "delta": 0.0
+            },
+            "flow": {
+              "weight": 0.24,
+              "delta": -0.01
+            },
+            "positioning": {
+              "weight": 0.15,
+              "delta": 0.0
+            },
+            "timing": {
+              "weight": 0.05,
+              "delta": 0.0
+            }
+          },
+          "valid": true
+        },
+        "chop": {
+          "sum": 1.0,
+          "buckets": {
+            "momentum": {
+              "weight": 0.16,
+              "delta": 0.01
+            },
+            "meanrev": {
+              "weight": 0.45,
+              "delta": 0.0
+            },
+            "flow": {
+              "weight": 0.19,
+              "delta": -0.01
+            },
+            "positioning": {
+              "weight": 0.15,
+              "delta": 0.0
+            },
+            "timing": {
+              "weight": 0.05,
+              "delta": 0.0
+            }
+          },
+          "valid": true
+        },
+        "high_vol": {
+          "sum": 1.0,
+          "buckets": {
+            "momentum": {
+              "weight": 0.31,
+              "delta": 0.01
+            },
+            "meanrev": {
+              "weight": 0.1,
+              "delta": 0.0
+            },
+            "flow": {
+              "weight": 0.33999999999999997,
+              "delta": -0.01
+            },
+            "positioning": {
+              "weight": 0.2,
+              "delta": 0.0
+            },
+            "timing": {
+              "weight": 0.05,
+              "delta": 0.0
+            }
+          },
+          "valid": true
+        }
+      }
+    },
+    "risk": {
+      "ok": true,
+      "details": {
+        "ts": "2025-11-07T22:59:40.037362+00:00",
+        "equity": 7635.802924096188,
+        "peak": 9664.82661135739,
+        "drawdown": 0.20993896412759683,
+        "band": "C",
+        "mult": 0.5,
+        "reason": "computed"
+      }
+    },
+    "governance": {
+      "ok": true,
+      "details": {
+        "ts": "2025-11-07T22:07:12.841099+00:00",
+        "modules": {
+          "dream": {
+            "enabled": true,
+            "score": 0.5,
+            "note": "dream bias vs baseline"
+          },
+          "evolver": {
+            "enabled": true,
+            "score": 0.5,
+            "note": "evolver pf_cf vs baseline"
+          },
+          "sandbox": {
+            "enabled": true,
+            "score": 0.30607860462737246,
+            "note": "sandbox PF_adj/2"
+          },
+          "mirror": {
+            "enabled": true,
+            "score": 0.698952829562487,
+            "note": "portfolio PF/1.5"
+          }
+        },
+        "sci": 0.5012578585474649,
+        "recommendation": "REVIEW"
       }
     }
   }
