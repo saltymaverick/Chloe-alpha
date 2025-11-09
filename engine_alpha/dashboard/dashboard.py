@@ -32,47 +32,90 @@ def load_json(path: Path) -> Optional[Dict[str, Any]]:
     if not path.exists():
         return None
     try:
-        # explicit re-read each render (no caching)
-        with path.open("r") as f:
-            return json.load(f)
+        return json.loads(path.read_text())
     except Exception:
         return None
+
+
+def jsonl_tail(path: Path, n: int = 1) -> List[Dict[str, Any]]:
+    """Read the tail of a JSONL file, skipping malformed rows."""
+    if not path.exists():
+        return []
+    try:
+        raw_lines = path.read_text().splitlines()
+    except Exception:
+        return []
+    out: List[Dict[str, Any]] = []
+    lines = [ln.strip() for ln in raw_lines if ln.strip()]
+    for line in lines[-n:]:
+        try:
+            out.append(json.loads(line))
+        except Exception:
+            continue
+    return out
 
 
 def load_yaml(path: Path) -> Optional[Dict[str, Any]]:
     if not path.exists():
         return None
     try:
-        with path.open("r") as f:
-            data = yaml.safe_load(f)
-            return data or {}
+        data = yaml.safe_load(path.read_text())
+        return data or {}
     except Exception:
         return None
 
 
-def load_jsonl_tail(path: Path, lines: int = 1) -> List[Dict[str, Any]]:
-    if not path.exists():
-        return []
+def parse_ts_to_dt(ts_val: Optional[str]) -> Optional[datetime]:
+    if not ts_val or not isinstance(ts_val, str):
+        return None
+    candidate = ts_val.strip()
     try:
-        with path.open("r") as f:
-            rows = f.readlines()[-lines:]
+        if candidate.endswith("Z"):
+            candidate = candidate[:-1] + "+00:00"
+        return datetime.fromisoformat(candidate)
     except Exception:
-        return []
-    out: List[Dict[str, Any]] = []
-    for row in rows:
-        row = row.strip()
-        if not row:
-            continue
+        return None
+
+
+def age_seconds(dt: Optional[datetime]) -> Optional[float]:
+    if dt is None:
+        return None
+    return (datetime.now(timezone.utc) - dt).total_seconds()
+
+
+def color_for_age(age_sec: Optional[float]) -> str:
+    if age_sec is None:
+        return "gray"
+    if age_sec < 3600:
+        return "green"
+    if age_sec <= 7200:
+        return "orange"
+    return "red"
+
+
+def small_ui_chip(label: str, value: str, color: str) -> None:
+    st.markdown(f"**{label}:** :{color}[{value}]")
+
+
+def format_dt(dt: Optional[datetime]) -> str:
+    if dt is None:
+        return "N/A"
+    return dt.strftime("%Y-%m-%d %H:%M UTC")
+
+
+def format_ts_value(value: Any) -> str:
+    if isinstance(value, (int, float)):
         try:
-            out.append(json.loads(row))
+            dt = datetime.fromtimestamp(value, tz=timezone.utc)
+            return format_dt(dt)
         except Exception:
-            continue
-    return out
-
-
-def jsonl_tail(path: Path, lines: int = 1) -> List[Dict[str, Any]]:
-    """Alias helper for clarity."""
-    return load_jsonl_tail(path, lines)
+            return str(value)
+    if isinstance(value, str):
+        dt = parse_ts_to_dt(value)
+        if dt:
+            return format_dt(dt)
+        return value or "N/A"
+    return "N/A"
 
 
 def load_equity_df() -> Optional[pd.DataFrame]:
@@ -154,52 +197,6 @@ def get_value(data: Optional[Dict[str, Any]], *keys, default=None):
     return cur
 
 
-def _parse_ts(ts_val: Any) -> Optional[datetime]:
-    if ts_val is None:
-        return None
-    if isinstance(ts_val, (int, float)):
-        try:
-            return datetime.fromtimestamp(ts_val, tz=timezone.utc)
-        except Exception:
-            return None
-    if isinstance(ts_val, str):
-        candidate = ts_val
-        if candidate.endswith("Z"):
-            candidate = candidate[:-1] + "+00:00"
-        try:
-            return datetime.fromisoformat(candidate)
-        except Exception:
-            return None
-    return None
-
-
-def fmt_ts(ts_val: Any) -> str:
-    dt = _parse_ts(ts_val)
-    if dt is None:
-        return "N/A"
-    return dt.strftime("%Y-%m-%d %H:%M UTC")
-
-
-def color_age(ts_val: Any) -> str:
-    dt = _parse_ts(ts_val)
-    if dt is None:
-        return "gray"
-    age = (datetime.now(timezone.utc) - dt).total_seconds()
-    if age < 3600:
-        return "green"
-    if age < 7200:
-        return "orange"
-    return "red"
-
-
-def _render_tile(column, label: str, ts_val: Any, extra: Optional[str] = None) -> None:
-    color = color_age(ts_val)
-    text = fmt_ts(ts_val)
-    if extra:
-        text = f"{text}  \n{extra}"
-    column.markdown(f"**{label}:** :{color}[{text}]")
-
-
 def _live_defaults() -> Dict[str, str]:
     symbol = "ETHUSDT"
     timeframe = "1h"
@@ -224,38 +221,10 @@ def _truncate_text(text: str, limit: int = 600) -> tuple[str, bool]:
     return text[:limit].rstrip() + "…", True
 
 
-def _extract_trade_ts(trades: List[Dict[str, Any]]) -> Optional[str]:
-    for entry in reversed(trades):
-        for key in ("ts", "exit_ts", "entry_ts"):
-            if entry.get(key):
-                return entry.get(key)
-    return None
-
-
 def overview_tab():
     st.header("Overview")
 
     orch = load_json(REPORTS / "orchestrator_snapshot.json")
-    live_state = load_json(REPORTS / "live_loop_state.json")
-    trades_tail = jsonl_tail(REPORTS / "trades.jsonl", lines=1)
-    dream_tail = jsonl_tail(REPORTS / "dream_log.jsonl", lines=1)
-
-    policy_ts = orch.get("ts") if orch else None
-    live_ts = get_value(live_state, "ts")
-    trade_ts = _extract_trade_ts(trades_tail)
-    dream_ts = dream_tail[0].get("ts") if dream_tail else None
-
-    col_policy, col_live, col_trade, col_dream = st.columns(4)
-    _render_tile(col_policy, "Policy", policy_ts)
-    live_extra = None
-    if live_state:
-        sym = live_state.get("symbol")
-        tf = live_state.get("timeframe")
-        if sym or tf:
-            live_extra = f"{sym or ''} {tf or ''}".strip()
-    _render_tile(col_live, "Live", live_ts, extra=live_extra or None)
-    _render_tile(col_trade, "Trade", trade_ts)
-    _render_tile(col_dream, "Dream", dream_ts)
 
     defaults = _live_defaults()
     meta = _load_live_meta(defaults["symbol"], defaults["timeframe"])
@@ -264,7 +233,7 @@ def overview_tab():
         host = meta.get("host") or meta.get("source") or "unknown"
         rows = meta.get("rows") or meta.get("count") or meta.get("size") or "?"
         st.caption(
-            f"Live: {defaults['symbol']} {defaults['timeframe']} • last: {fmt_ts(last_ts)} • host: {host} • rows: {rows}"
+            f"Live: {defaults['symbol']} {defaults['timeframe']} • last: {format_ts_value(last_ts)} • host: {host} • rows: {rows}"
         )
     else:
         st.caption("Live: N/A")
@@ -272,7 +241,7 @@ def overview_tab():
     pf_local = load_json(REPORTS / "pf_local.json")
     pf_local_adj = load_json(REPORTS / "pf_local_adj.json")
     pa_status = load_json(REPORTS / "pa_status.json")
-    equity_tail = load_jsonl_tail(REPORTS / "equity_curve.jsonl", lines=1)
+    equity_tail = jsonl_tail(REPORTS / "equity_curve.jsonl", n=1)
     last_equity = get_value(equity_tail[0], "equity", default="N/A") if equity_tail else "N/A"
 
     col_pf, col_adj, col_pa, col_equity = st.columns(4)
@@ -436,7 +405,7 @@ def backtest_tab():
     else:
         st.caption("Backtest equity curve unavailable.")
 
-    trades_tail = load_jsonl_tail(bt_dir / "trades.jsonl", lines=20)
+    trades_tail = jsonl_tail(bt_dir / "trades.jsonl", n=20)
     if trades_tail:
         st.subheader("Trades (last 20)")
         try:
@@ -453,18 +422,18 @@ def intelligence_tab():
     with cols[0]:
         st.subheader("Dream")
         st.json(load_json(REPORTS / "dream_snapshot.json") or {"status": "N/A"})
-        dream_tail = load_jsonl_tail(REPORTS / "dream_log.jsonl", 1)
+        dream_tail = jsonl_tail(REPORTS / "dream_log.jsonl", n=1)
         if dream_tail:
             st.write(dream_tail[0])
     with cols[1]:
         st.subheader("Evolver")
         st.json(load_json(REPORTS / "evolver_snapshot.json") or {"status": "N/A"})
-        lineage_tail = load_jsonl_tail(REPORTS / "strategy_lineage.jsonl", 1)
+        lineage_tail = jsonl_tail(REPORTS / "strategy_lineage.jsonl", n=1)
         if lineage_tail:
             st.write(lineage_tail[0])
     with cols[2]:
         st.subheader("Confidence")
-        entries = load_jsonl_tail(REPORTS / "confidence_tune.jsonl", 3)
+        entries = jsonl_tail(REPORTS / "confidence_tune.jsonl", n=3)
         if entries:
             st.table(entries)
         else:
@@ -557,7 +526,7 @@ def reasoning_tab():
         st.info("No news tone available.")
 
     st.subheader("Governance Rationale")
-    gov_tail = jsonl_tail(REPORTS / "governance_log.jsonl", lines=1)
+    gov_tail = jsonl_tail(REPORTS / "governance_log.jsonl", n=1)
     if gov_tail:
         record = gov_tail[0]
         rec = record.get("recommendation", "N/A")
@@ -585,7 +554,7 @@ def sandbox_tab():
         st.info("No sandbox data yet")
         return
 
-    runs = load_jsonl_tail(runs_path, lines=5)
+    runs = jsonl_tail(runs_path, n=5)
     if runs:
         df = pd.DataFrame(runs)
         df = df[[col for col in ["id", "child", "pf_adj", "state", "ts"] if col in df.columns]]
@@ -643,6 +612,26 @@ def main():
     refresh_choice = st.sidebar.selectbox("Auto-refresh", list(REFRESH_OPTIONS.keys()), index=2)
     if st.sidebar.button("Refresh now"):
         st.rerun()
+
+    policy_dt = parse_ts_to_dt(get_value(load_json(REPORTS / "orchestrator_snapshot.json"), "ts"))
+    live_dt = parse_ts_to_dt(get_value(load_json(REPORTS / "live_loop_state.json"), "ts"))
+    trade_tail = jsonl_tail(REPORTS / "trades.jsonl", n=1)
+    trade_dt = parse_ts_to_dt(trade_tail[0].get("ts")) if trade_tail else None
+    dream_tail = jsonl_tail(REPORTS / "dream_log.jsonl", n=1)
+    dream_dt = parse_ts_to_dt(dream_tail[0].get("ts")) if dream_tail else None
+
+    hb_cols = st.columns(4)
+    for col, (label, dt_val) in zip(
+        hb_cols,
+        [
+            ("Policy", policy_dt),
+            ("Live", live_dt),
+            ("Trade", trade_dt),
+            ("Dream", dream_dt),
+        ],
+    ):
+        color = color_for_age(age_seconds(dt_val))
+        small_ui_chip(label, format_dt(dt_val), color)
     st.title("Alpha Chloe Dashboard")
     st.caption("Read-only metrics with health analytics")
 
