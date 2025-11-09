@@ -408,6 +408,26 @@ def _section_council() -> Dict[str, Any]:
     return {"ok": ok, "details": details}
 
 
+def _section_backtest() -> Dict[str, Any]:
+    summary_path = REPORTS / "backtest" / "summary.json"
+    if not summary_path.exists():
+        return {"ok": True, "optional": True, "details": {"note": "backtest_not_run"}}
+    try:
+        data = json.loads(summary_path.read_text())
+    except Exception as exc:
+        return {"ok": False, "optional": True, "details": {"error": str(exc)}}
+    pf = data.get("pf")
+    pf_adj = data.get("pf_adj")
+    trades = data.get("trades", 0)
+    ok = (
+        isinstance(pf, (int, float))
+        and isinstance(pf_adj, (int, float))
+        and isinstance(trades, (int, float))
+        and trades >= 1
+    )
+    return {"ok": ok, "optional": True, "details": data}
+
+
 def _section_sandbox() -> Dict[str, Any]:
     status_path = REPORTS / "sandbox" / "sandbox_status.json"
     runs_path = REPORTS / "sandbox" / "sandbox_runs.jsonl"
@@ -447,8 +467,12 @@ def main() -> int:
         "risk": _section_risk(),
         "governance": _section_governance(),
         "orchestrator": _section_orchestrator(),
+        "backtest": _section_backtest(),
     }
-    overall = all(section.get("ok") for section in sections.values())
+    blocking_sections = {
+        name: section for name, section in sections.items() if not section.get("optional")
+    }
+    overall = all(section.get("ok") for section in blocking_sections.values())
     summary = {"ts": _iso_now(), "PASS": overall, "sections": sections}
     summary_path = REPORTS / SUMMARY_NAME
     summary_path.parent.mkdir(parents=True, exist_ok=True)
