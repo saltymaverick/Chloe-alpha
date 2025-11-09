@@ -118,31 +118,48 @@ def format_ts_value(value: Any) -> str:
     return "N/A"
 
 
-def load_equity_df() -> Optional[pd.DataFrame]:
+def load_equity_df(max_points: int = 300) -> Optional[pd.DataFrame]:
     path = REPORTS / "equity_curve.jsonl"
     if not path.exists():
         return None
-    rows: List[Dict[str, Any]] = []
     try:
-        with path.open("r") as f:
-            for line in f:
-                try:
-                    obj = json.loads(line)
-                    rows.append(
-                        {
-                            "ts": pd.to_datetime(obj.get("ts")),
-                            "equity": float(obj.get("equity", float("nan"))),
-                            "adj_pct": float(obj.get("adj_pct", 0.0)),
-                        }
-                    )
-                except Exception:
-                    continue
+        raw_lines = path.read_text().splitlines()
     except Exception:
         return None
-    df = pd.DataFrame(rows).dropna(subset=["ts", "equity"])
-    if len(df) < 2:
+
+    rows: List[Dict[str, Any]] = []
+    for line in raw_lines:
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            obj = json.loads(line)
+        except Exception:
+            continue
+        ts = obj.get("ts")
+        equity = obj.get("equity")
+        if ts is None or equity is None:
+            continue
+        rows.append(
+            {
+                "ts": ts,
+                "equity": equity,
+                "adj_pct": obj.get("adj_pct"),
+            }
+        )
+
+    if not rows:
         return None
-    return df.sort_values("ts").tail(300)
+
+    df = pd.DataFrame(rows)
+    df["ts"] = pd.to_datetime(df["ts"], utc=True, errors="coerce")
+    df["equity"] = pd.to_numeric(df["equity"], errors="coerce")
+    if "adj_pct" in df.columns:
+        df["adj_pct"] = pd.to_numeric(df["adj_pct"], errors="coerce")
+    df = df.dropna(subset=["ts", "equity"]).sort_values("ts")
+    if df.empty:
+        return None
+    return df.tail(max_points)
 
 
 def load_backtest_equity_df(jsonl_path: Optional[Path] = None) -> Optional[pd.DataFrame]:
@@ -379,7 +396,9 @@ def overview_tab(ctx: Optional[Dict[str, Any]] = None):
     st.markdown(f"**Opens:** {opens_mark}   **PA:** {pa_mark}")
 
     df = load_equity_df()
-    if df is not None and not df.empty:
+    if df is None or len(df) < 2:
+        st.caption("Equity curve: N/A (need ≥2 points)")
+    else:
         last_point = df.iloc[-1]
         color = "green" if last_point.get("adj_pct", 0.0) >= 0 else "red"
         base = alt.Chart(df).mark_line(strokeWidth=2).encode(
@@ -391,8 +410,6 @@ def overview_tab(ctx: Optional[Dict[str, Any]] = None):
             y="equity:Q",
         )
         st.altair_chart(base + dot, use_container_width=True)
-    else:
-        st.caption("Equity curve: N/A (need ≥2 points)")
 
     if st.button("Run Acceptance Check"):
         with st.spinner("Running acceptance check..."):
