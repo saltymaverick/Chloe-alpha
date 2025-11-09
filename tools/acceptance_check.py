@@ -341,7 +341,11 @@ def _section_risk() -> Dict[str, Any]:
             and 0.5 <= float(mult) <= 1.25
             and band in {"A", "B", "C"}
         )
-    return {"ok": ok, "details": data}
+    policy_note = _read_json(REPORTS / "policy_note.json")
+    details = dict(data)
+    if policy_note:
+        details["policy_note"] = policy_note
+    return {"ok": ok, "details": details}
 
 
 def _section_governance() -> Dict[str, Any]:
@@ -436,6 +440,33 @@ def _section_backtest() -> Dict[str, Any]:
         )
     else:
         details["reason"] = "no_runs"
+    return {"ok": ok, "optional": True, "details": details}
+
+
+def _section_alerts() -> Dict[str, Any]:
+    alerts_path = REPORTS / "alerts.jsonl"
+    if not alerts_path.exists():
+        return {"ok": False, "optional": True, "details": {"reason": "alerts_missing"}}
+    entries = _read_jsonl_tail(alerts_path, lines=3)
+    last_entry = entries[-1] if entries else None
+    last_ts = last_entry.get("ts") if isinstance(last_entry, dict) else None
+    ok = False
+    if last_ts:
+        try:
+            last_dt = datetime.fromisoformat(last_ts.replace("Z", "+00:00"))
+            ok = datetime.now(timezone.utc) - last_dt <= timedelta(hours=6)
+        except Exception:
+            ok = False
+    details: Dict[str, Any] = {
+        "last_ts": last_ts,
+        "last_codes": [
+            entry.get("code")
+            for entry in entries
+            if isinstance(entry, dict) and entry.get("code")
+        ],
+    }
+    if not entries:
+        details["reason"] = "no_entries"
     return {"ok": ok, "optional": True, "details": details}
 
 
@@ -541,6 +572,7 @@ def main() -> int:
         "governance": _section_governance(),
         "orchestrator": _section_orchestrator(),
         "backtest": _section_backtest(),
+        "alerts": _section_alerts(),
         "live_feeds": _section_live_feeds(),
         "live_loop": _section_live_loop(),
     }
