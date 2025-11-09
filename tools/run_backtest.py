@@ -24,7 +24,6 @@ def _write_trades(trades_path: Path, trades):
 
 
 def _write_equity_curve(equity_path: Path, trades, start_equity: float) -> None:
-    equity_path.parent.mkdir(parents=True, exist_ok=True)
     equity = float(start_equity)
     entries = []
     for trade in trades:
@@ -40,6 +39,7 @@ def _write_equity_curve(equity_path: Path, trades, start_equity: float) -> None:
             continue
         equity *= 1.0 + adj_pct
         entries.append({"ts": trade.get("ts"), "equity": equity, "adj_pct": adj_pct})
+    equity_path.parent.mkdir(parents=True, exist_ok=True)
     with equity_path.open("w") as f:
         for entry in entries:
             f.write(json.dumps(entry) + "\n")
@@ -63,7 +63,7 @@ def main():
     bars = 0
     for symbol in symbols:
         rows = load_ohlcv(symbol, timeframe, start, end, cfg)
-        result = replay(symbol, timeframe, rows, seed=seed)
+        result = replay(symbol, timeframe, rows, cfg=cfg, seed=seed)
         total_trades.extend(result["trades"])
         bars += result["bars"]
 

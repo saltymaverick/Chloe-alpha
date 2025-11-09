@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import json
 import subprocess
+import sys
 import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -247,6 +248,25 @@ def backtest_tab():
     st.header("Backtest")
 
     bt_dir = REPORTS / "backtest"
+
+    if st.button("Run Backtest"):
+        with st.spinner("Running backtest..."):
+            output = ""
+            try:
+                cmd = [sys.executable, "-m", "tools.run_backtest"]
+                res = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
+                combined = "\n".join(part for part in [res.stdout.strip(), res.stderr.strip()] if part)
+                output = combined or "No output."
+            except subprocess.TimeoutExpired:
+                output = "Backtest timed out after 120 seconds."
+            except Exception as exc:
+                output = f"Backtest run failed: {exc}"
+            if "ModuleNotFoundError" in output or "ImportError" in output:
+                output = f"tools.run_backtest not found\n{output}"
+        with st.expander("Backtest Output"):
+            st.code(output)
+        st.rerun()
+
     summary = load_json(bt_dir / "summary.json")
 
     if not summary:

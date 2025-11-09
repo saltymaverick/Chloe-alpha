@@ -11,3 +11,5 @@ ccxt:
   rate_limit_ms: 300
 seed: 42
 start_equity: 10000.0
+pct_per_conf: 0.02
+max_trade_pct: 0.05
