@@ -1,0 +1,2 @@
+{"ts": "2025-11-10T04:40:06Z", "kind": "gates", "payload": {"entry_min_delta": 0.02, "flip_min_delta": 0.02}, "pf_cf": 1.0162479617584246, "uplift": -40.33118711253714, "recommend": "hold", "source": "manual_test"}
+{"ts": "2025-11-10T04:40:06Z", "kind": "weights", "payload": {"chop": {"flow": -0.01, "positioning": 0.01}, "high_vol": {"flow": -0.01, "positioning": 0.01}}, "pf_cf": 1.0162479617584246, "uplift": -40.33118711253714, "recommend": "hold", "source": "manual_test"}

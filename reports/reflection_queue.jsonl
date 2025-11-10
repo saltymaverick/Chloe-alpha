@@ -1,0 +1,2 @@
+{"ts": "2025-11-10T04:40:06Z", "kind": "gates", "scope": "chop_lowflow", "payload": {"entry_min_delta": 0.02, "flip_min_delta": 0.02}, "source": "manual_test"}
+{"ts": "2025-11-10T04:40:06Z", "kind": "weights", "scope": "chop_highvol", "payload": {"chop": {"flow": -0.01, "positioning": 0.01}, "high_vol": {"flow": -0.01, "positioning": 0.01}}, "source": "manual_test"}
