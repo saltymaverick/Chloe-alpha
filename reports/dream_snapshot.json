@@ -1,19 +1,19 @@
 {
-  "ts": "2025-11-10T03:29:01.435670+00:00",
+  "ts": "2025-11-10T04:24:51.330223+00:00",
   "window_steps": 200,
-  "pf_local": 15.083250283371443,
-  "baseline_pf_cf": 0.9313621801726896,
-  "best_pf_cf": 1.0162479617584246,
+  "pf_local": 41.34743507429556,
+  "baseline_pf_cf": 1.0162479617584246,
+  "best_pf_cf": 1.1078810112018245,
   "proposal_kind": "hold",
   "best_combo": {
-    "entry_min": 0.5933333333333333,
+    "entry_min": 0.58,
     "exit_min": 0.42,
     "flip_min": 0.53,
-    "pf_cf": 1.0162479617584246
+    "pf_cf": 1.1078810112018245
   },
   "pf_adj_trend": {
-    "slope_50_pct": 0.8048020629032192,
-    "slope_10_pct": 0.8048020629032192
+    "slope_50_pct": 6.191040728314158,
+    "slope_10_pct": 6.191040728314158
   },
   "council": {
     "trend": {
@@ -43,11 +43,11 @@
     "rec": "REVIEW"
   },
   "trades": {
-    "opens": 7,
-    "closes": 5,
-    "wins": 3,
+    "opens": 12,
+    "closes": 10,
+    "wins": 8,
     "losses": 2,
-    "avg_abs_close_pct": 0.41892009487898874
+    "avg_abs_close_pct": 0.5515113924934499
   },
-  "gpt_text": "### Reflection on Dream Mode Analytics\n\n#### Performance Trends\n- **PF Adjusted Trend**: Both the 50% and 10% slopes are positive (0.80), indicating a strong upward trend in performance metrics.\n  \n#### Council Insights\n- **Trend Analysis**: \n  - **Momentum**: Slightly positive (0.01), suggesting stability but lack of strong movement.\n  - **Mean Reversion**: Neutral (0.0), indicating no significant tendency to revert to the mean.\n  - **Flow**: Negative (-0.01), which may indicate potential outflows or reduced engagement.\n  - **Positioning and Timing**: Both at 0.0, indicating no clear directional bias or timing advantage.\n\n- **Chop and High Volatility**: Similar metrics as the trend analysis, reinforcing the lack of strong directional movement or volatility.\n\n#### Governance\n- **SCI Score**: Moderate at 0.45, suggesting room for improvement.\n- **Recommendation**: \"REVIEW\" indicates a need for further analysis or adjustment in governance strategies.\n\n#### Trade Performance\n- **Trade Metrics**: \n  - 7 opens and 5 closes indicate active trading.\n  - Win rate is 60% (3 wins out of 5 closes), which is positive.\n  - Average absolute close percentage of 41.89% suggests profitable trades, but further analysis is needed to assess risk and reward balance.\n\n#### Proposal Kind\n- **Current Strategy**: \"Hold\" suggests a cautious approach, likely in response to mixed signals from the analytics.\n\n#### Best Delta\n- **Best Delta**: -14.07 indicates a significant deviation, warranting investigation into factors contributing to this outcome.\n\n### Conclusion\nThe analytics reflect a generally positive performance trend but highlight areas of concern regarding flow and governance. The recommendation to review governance practices and the cautious \"hold\" strategy suggest a need for careful monitoring and potential adjustments in response to market conditions."
+  "gpt_text": "### Reflection on Dream Mode Analytics\n\n**1. Performance Metrics:**\n- **Trades Overview:**\n  - **Opens:** 12\n  - **Closes:** 10\n  - **Wins:** 8 (80% win rate)\n  - **Losses:** 2\n  - **Average Absolute Close Percentage:** 0.55% indicates a generally positive performance in closed trades.\n\n**2. Trend Analysis:**\n- **PF Adjusted Trend:**\n  - **Slope (50% & 10%):** 6.19 suggests a consistent upward trend, indicating potential growth.\n  \n- **Council Metrics:**\n  - **Momentum:** 0.01 across all categories reflects weak upward momentum.\n  - **Flow:** Negative at -0.01 indicates potential outflow or selling pressure.\n  - **Positioning, Timing, and Mean Reversion:** All at 0.0 suggest a neutral stance with no significant shifts expected.\n\n**3. Governance:**\n- **SCI (Scorecard Indicator):** 0.45 indicates a moderate level of confidence.\n- **Recommendation:** \"REVIEW\" suggests the need for further evaluation of strategies or positions.\n\n**4. Proposal:**\n- **Kind:** \"Hold\" indicates a cautious approach, likely due to mixed signals from the trend and governance metrics.\n\n**5. Best Delta:**\n- **Value:** -40.24 suggests a significant potential downside, warranting careful consideration in decision-making.\n\n### Conclusion\nThe analytics present a mixed outlook with strong trade performance but weak momentum and negative flow indicators. A cautious \"hold\" proposal aligns with the governance recommendation to review current strategies, especially given the negative best delta. Further analysis is needed to address the outflow and momentum concerns."
 }

@@ -366,4 +366,36 @@ def run_gpt_reflection(n: int = 20) -> Dict[str, Any]:
 
     summary_path = REPORTS / "gpt_summary.json"
     summary_path.write_text(json.dumps(record, indent=2))
+
+    # Queue actionable adjustments, if present
+    queue_items: List[Dict[str, Any]] = []
+    summary_data = record.get("context", {})
+    reflection_text = record.get("summary") or ""
+    if isinstance(summary_data, dict):
+        adjustments = summary_data.get("adjustments")
+        if isinstance(adjustments, dict) and adjustments:
+            queue_items.append(
+                {
+                    "ts": ts,
+                    "kind": "gates",
+                    "payload": adjustments,
+                    "source": "reflection",
+                }
+            )
+        council_hints = summary_data.get("council_hints")
+        if isinstance(council_hints, dict) and council_hints:
+            queue_items.append(
+                {
+                    "ts": ts,
+                    "kind": "weights",
+                    "payload": council_hints,
+                    "source": "reflection",
+                }
+            )
+    if queue_items:
+        queue_path = REPORTS / "reflection_queue.jsonl"
+        queue_path.parent.mkdir(parents=True, exist_ok=True)
+        with queue_path.open("a") as handle:
+            for item in queue_items:
+                handle.write(json.dumps(item) + "\n")
     return record

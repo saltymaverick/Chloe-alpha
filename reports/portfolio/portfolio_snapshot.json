@@ -1,0 +1,25 @@
+{
+  "symbols": [
+    "ETHUSDT",
+    "BTCUSDT",
+    "SOLUSDT"
+  ],
+  "summary": {
+    "ETHUSDT": {
+      "pf": 0.5351269398442374,
+      "opens": 8,
+      "closes": 8
+    },
+    "BTCUSDT": {
+      "pf": 0.5236988948030608,
+      "opens": 7,
+      "closes": 7
+    },
+    "SOLUSDT": {
+      "pf": 1.7615961743765673,
+      "opens": 8,
+      "closes": 7
+    }
+  },
+  "portfolio_pf": 0.8055925455016685
+}

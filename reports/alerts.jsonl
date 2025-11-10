@@ -8,3 +8,4 @@
 {"ts": "2025-11-10T01:00:02.186089+00:00", "level": "warn", "code": "live_loop_stale", "details": {"age_seconds": 3602}}
 {"ts": "2025-11-10T02:00:23.441651+00:00", "level": "warn", "code": "live_loop_stale", "details": {"age_seconds": 3623}}
 {"ts": "2025-11-10T03:00:33.434705+00:00", "level": "warn", "code": "live_loop_stale", "details": {"age_seconds": 3633}}
+{"ts": "2025-11-10T04:00:23.460922+00:00", "level": "warn", "code": "live_loop_stale", "details": {"age_seconds": 3623}}

@@ -1,13 +1,13 @@
 {
-  "ts": "2025-11-10T03:35:42.098233+00:00",
+  "ts": "2025-11-10T04:25:03.419684+00:00",
   "inputs": {
     "sci": 0.4515196511568431,
     "rec": "REVIEW",
     "risk_band": "A",
     "risk_mult": 1.0,
-    "pf_local": 15.083250283371443,
-    "count": 12,
-    "pa_armed": false
+    "pf_local": 41.34743507429556,
+    "count": 22,
+    "pa_armed": true
   },
   "policy": {
     "allow_opens": true,

@@ -6,6 +6,7 @@ Nightly counterfactual replay exploring gate variations.
 from __future__ import annotations
 
 import json
+import os
 from datetime import datetime, timezone
 from itertools import product
 from pathlib import Path
@@ -18,6 +19,10 @@ from engine_alpha.core.paths import REPORTS, CONFIG
 from engine_alpha.signals.signal_processor import get_signal_vector
 from engine_alpha.core.confidence_engine import decide
 from engine_alpha.core.regime import RegimeClassifier
+
+REFLECTION_QUEUE_PATH = REPORTS / "reflection_queue.jsonl"
+REFLECTION_QUEUE_SEEN = REPORTS / "reflection_queue_last_ts.json"
+PROPOSALS_SCORED_PATH = REPORTS / "dream_proposals_scored.jsonl"
 
 
 def _read_json(path: Path) -> Optional[Dict[str, Any]]:
@@ -283,6 +288,40 @@ def _maybe_run_gpt(summary_payload: Dict[str, Any]) -> Optional[str]:
     return None
 
 
+def _load_reflection_queue() -> List[Dict[str, Any]]:
+    if not REFLECTION_QUEUE_PATH.exists():
+        return []
+    try:
+        items = [json.loads(line) for line in REFLECTION_QUEUE_PATH.read_text().splitlines() if line.strip()]
+    except Exception:
+        return []
+    seen_ts = set()
+    if REFLECTION_QUEUE_SEEN.exists():
+        try:
+            data = json.loads(REFLECTION_QUEUE_SEEN.read_text())
+            seen_ts = set(data.get("seen", [])) if isinstance(data, dict) else set()
+        except Exception:
+            seen_ts = set()
+    new_items = [item for item in items if isinstance(item, dict) and item.get("ts") not in seen_ts]
+    return new_items
+
+
+def _mark_queue_consumed(items: List[Dict[str, Any]]) -> None:
+    seen_ts = set()
+    if REFLECTION_QUEUE_SEEN.exists():
+        try:
+            data = json.loads(REFLECTION_QUEUE_SEEN.read_text())
+            if isinstance(data, dict):
+                seen_ts = set(data.get("seen", []))
+        except Exception:
+            seen_ts = set()
+    for item in items:
+        ts_val = item.get("ts")
+        if ts_val:
+            seen_ts.add(ts_val)
+    REFLECTION_QUEUE_SEEN.write_text(json.dumps({"seen": sorted(seen_ts)}, indent=2))
+
+
 def run_dream(window_steps: int = 200) -> Dict[str, Any]:
     """
     Replay recent signal vectors, test gate variations, and log proposals along with context analytics.
@@ -338,6 +377,45 @@ def run_dream(window_steps: int = 200) -> Dict[str, Any]:
     governance_summary = _load_governance_summary()
     trades_summary = _load_trades_snapshot(limit=100)
 
+    queue_items = _load_reflection_queue()
+    scored_proposals: List[Dict[str, Any]] = []
+    for item in queue_items:
+        kind = item.get("kind")
+        payload = item.get("payload")
+        if kind not in {"gates", "weights"} or not isinstance(payload, dict):
+            continue
+        if kind == "gates":
+            entry_delta = float(payload.get("entry_delta", 0.0))
+            exit_delta = float(payload.get("exit_delta", 0.0))
+            flip_delta = float(payload.get("flip_delta", 0.0))
+            entry_test = max(0.01, min(0.99, entry_base + entry_delta))
+            exit_test = max(0.01, min(0.99, exit_base + exit_delta))
+            flip_test = max(0.01, min(0.99, flip_base + flip_delta))
+            pf_cf = _simulate_pf(steps, entry_test, exit_test, flip_test)
+        else:  # weights kind
+            bucket_scalar = float(payload.get("scalar", 0.0))
+            pf_cf = baseline_pf + bucket_scalar * 0.01  # heuristic lift
+        uplift = pf_cf - baseline_pf
+        recommend = "apply" if uplift >= 0.03 else "hold"
+        scored_proposals.append(
+            {
+                "ts": item.get("ts"),
+                "kind": kind,
+                "payload": payload,
+                "pf_cf": pf_cf,
+                "uplift": uplift,
+                "recommend": recommend,
+                "source": item.get("source"),
+            }
+        )
+
+    if scored_proposals:
+        PROPOSALS_SCORED_PATH.parent.mkdir(parents=True, exist_ok=True)
+        with PROPOSALS_SCORED_PATH.open("a") as handle:
+            for proposal in scored_proposals:
+                handle.write(json.dumps(proposal) + "\n")
+        _mark_queue_consumed(queue_items)
+
     context_summary = {
         "pf_adj_trend": pf_adj_trend,
         "council": council_summary,
@@ -365,6 +443,7 @@ def run_dream(window_steps: int = 200) -> Dict[str, Any]:
         "council": council_summary,
         "governance": governance_summary,
         "trades": trades_summary,
+        "proposals_scored": scored_proposals,
         "gpt_text": gpt_text,
     }
 
@@ -405,7 +484,6 @@ def run_dream(window_steps: int = 200) -> Dict[str, Any]:
     with open(snapshot_path, "w") as f:
         json.dump(snapshot, f, indent=2)
 
-    summary_path = REPORTS / "dream_summary.json"
     dream_summary = {
         "ts": ts,
         "pf_adj_trend": pf_adj_trend,
@@ -414,7 +492,18 @@ def run_dream(window_steps: int = 200) -> Dict[str, Any]:
         "trades": trades_summary,
         "proposal_kind": proposal_kind,
         "gpt_text": gpt_text,
+        "proposals_scored": [
+            {
+                "kind": item.get("kind"),
+                "uplift": item.get("uplift"),
+                "recommend": item.get("recommend"),
+                "pf_cf": item.get("pf_cf"),
+                "payload": item.get("payload"),
+            }
+            for item in scored_proposals
+        ],
     }
+    summary_path = REPORTS / "dream_summary.json"
     with open(summary_path, "w") as f:
         json.dump(dream_summary, f, indent=2)
 

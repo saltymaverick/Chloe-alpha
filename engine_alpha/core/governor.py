@@ -11,8 +11,10 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List
 
+import yaml
+
 from engine_alpha.core.gpt_client import load_prompt, query_gpt
-from engine_alpha.core.paths import REPORTS
+from engine_alpha.core.paths import CONFIG, REPORTS
 
 # Optional dotenv support without hard dependency
 try:  # pragma: no cover
@@ -129,6 +131,22 @@ def _enabled_env(var: str, default: bool = True) -> bool:
     if value is None:
         return default
     return value.lower() == "true"
+
+
+def _load_dream_proposals() -> List[Dict[str, Any]]:
+    summary = _read_json(REPORTS / "dream_summary.json") or {}
+    proposals = summary.get("proposals_scored")
+    if not isinstance(proposals, list):
+        return []
+    out: List[Dict[str, Any]] = []
+    for proposal in proposals:
+        if not isinstance(proposal, dict):
+            continue
+        uplift = proposal.get("uplift")
+        recommend = proposal.get("recommend")
+        if recommend == "apply" and isinstance(uplift, (int, float)) and uplift >= 0.03:
+            out.append(proposal)
+    return out
 
 
 def run_once() -> Dict[str, Any]:

@@ -13,7 +13,7 @@ import subprocess
 import sys
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Optional
 
 import yaml
 
@@ -568,6 +568,33 @@ def _section_sandbox() -> Dict[str, Any]:
     return {"ok": ok, "details": details}
 
 
+def _section_pipeline() -> Dict[str, Any]:
+    queue_tail = _read_jsonl_tail(REPORTS / "reflection_queue.jsonl", lines=1)
+    scored_tail = _read_jsonl_tail(REPORTS / "dream_proposals_scored.jsonl", lines=1)
+
+    def _extract_ts(items: List[Dict[str, Any]]) -> Optional[str]:
+        if not items:
+            return None
+        ts_val = items[-1].get("ts")
+        return ts_val if isinstance(ts_val, str) else None
+
+    queue_ts = _extract_ts(queue_tail)
+    scored_ts = _extract_ts(scored_tail)
+
+    ok = False
+    details: Dict[str, Any] = {
+        "queue_count": len(queue_tail),
+        "scored_count": len(scored_tail),
+    }
+    if queue_ts and _within_hours(queue_ts, timedelta(hours=48)):
+        ok = True
+        details["queue_ts"] = queue_ts
+    if scored_ts and _within_hours(scored_ts, timedelta(hours=48)):
+        ok = True
+        details["scored_ts"] = scored_ts
+    return {"ok": ok, "optional": True, "details": details}
+
+
 def main() -> int:
     sections = {
         "feeds": _section_feeds(),
@@ -588,6 +615,7 @@ def main() -> int:
         "alerts": _section_alerts(),
         "live_feeds": _section_live_feeds(),
         "live_loop": _section_live_loop(),
+        "pipeline": _section_pipeline(),
     }
     blocking_sections = {
         name: section for name, section in sections.items() if not section.get("optional")
