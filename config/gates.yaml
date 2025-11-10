@@ -1,19 +1,4 @@
-version: alpha-1
-ENTRY_EXIT:
-  entry_min_conf:
-    trend: 0.58
-    chop: 0.64
-    high_vol: 0.62
-  exit_min_conf: 0.42
-  reverse_min_conf: 0.55
 EXIT:
-  DECAY_BARS: 6
-  TAKE_PROFIT_CONF: 0.24
-  STOP_LOSS_CONF: 0.12
-PROFIT_AMPLIFIER:
-  arm_gate: { pf_local: 1.05, trades: 20 }
-  disarm_gate: { pf_local: 1.00, trades: 10 }
-  gates_triplet: [0.08, 0.05, 180]
-SAFE_MODE:
-  pf_local_floor: 0.95
-  loss_streak_n: 7
+  DECAY_BARS: 6          # decay after ~6 bars (use 6–8 in live soak)
+  TAKE_PROFIT_CONF: 0.24 # take profit if same-dir & conf ≥ 0.24
+  STOP_LOSS_CONF:   0.12 # stop if opposite-dir & conf ≥ 0.12
