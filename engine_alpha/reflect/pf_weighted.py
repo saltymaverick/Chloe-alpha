@@ -1,17 +1,19 @@
-"""Risk-weighted profit factor computation for live paper execution."""
+"""Risk-weighted profit factor computation for live or normalized equity."""
 
 from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Tuple
 
 from engine_alpha.core import position_sizing
 from engine_alpha.core.paths import REPORTS
 
 EQUITY_CURVE_LIVE = REPORTS / "equity_curve_live.jsonl"
+EQUITY_CURVE_NORM = REPORTS / "equity_curve_norm.jsonl"
 TRADES_PATH = REPORTS / "trades.jsonl"
 PF_OUT = REPORTS / "pf_local_live.json"
+PF_NORM_OUT = REPORTS / "pf_local_norm.json"
 
 
 def _read_jsonl(path: Path) -> List[Dict[str, Any]]:
@@ -53,6 +55,19 @@ def _series_from_equity(curve: List[Dict[str, Any]]) -> List[float]:
     return returns
 
 
+def _series_from_r_entries(curve: List[Dict[str, Any]]) -> List[float]:
+    returns: List[float] = []
+    for entry in curve:
+        r_val = entry.get("r")
+        if r_val is None:
+            continue
+        try:
+            returns.append(float(r_val))
+        except Exception:
+            continue
+    return returns
+
+
 def _series_from_trades(cfg: Dict[str, Any]) -> List[float]:
     trades = _read_jsonl(TRADES_PATH)
     if not trades:
@@ -71,11 +86,21 @@ def _series_from_trades(cfg: Dict[str, Any]) -> List[float]:
     return returns
 
 
-def update() -> Dict[str, Any]:
+def _paths_for_source(source: str) -> Tuple[Path, Path]:
+    source_key = (source or "live").lower()
+    if source_key == "norm":
+        return EQUITY_CURVE_NORM, PF_NORM_OUT
+    return EQUITY_CURVE_LIVE, PF_OUT
+
+
+def update(source: str = "live") -> Dict[str, Any]:
     cfg = position_sizing.load_cfg()
-    curve = _read_jsonl(EQUITY_CURVE_LIVE)
-    returns = _series_from_equity(curve)
+    curve_path, out_path = _paths_for_source(source)
+    curve = _read_jsonl(curve_path)
+    returns = _series_from_r_entries(curve)
     if not returns:
+        returns = _series_from_equity(curve)
+    if not returns and source.lower() == "live":
         returns = _series_from_trades(cfg)
 
     count = len(returns)
@@ -90,10 +115,10 @@ def update() -> Dict[str, Any]:
         else:
             pf = 0.0
 
-    PF_OUT.parent.mkdir(parents=True, exist_ok=True)
-    payload = {"pf": pf, "count": count}
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    payload = {"pf": pf, "count": count, "source": source.lower()}
     try:
-        PF_OUT.write_text(json.dumps(payload, indent=2))
+        out_path.write_text(json.dumps(payload, indent=2))
     except Exception:
         pass
     return payload

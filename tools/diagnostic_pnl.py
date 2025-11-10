@@ -7,6 +7,7 @@ Refreshes PF reports and equity curve from trades.jsonl.
 from __future__ import annotations
 
 import json
+import math
 
 from engine_alpha.core.paths import REPORTS
 from engine_alpha.reflect.trade_analysis import update_pf_reports
@@ -34,6 +35,14 @@ def _last_equity(curve_path):
         return None
 
 
+def _format_value(value):
+    if isinstance(value, (int, float)):
+        if math.isinf(value):
+            return "∞"
+        return f"{value:.4f}"
+    return value
+
+
 def main():
     trades_path = REPORTS / "trades.jsonl"
     update_pf_reports(
@@ -43,15 +52,23 @@ def main():
     )
 
     pf_local = _read_json(REPORTS / "pf_local.json")
-    pf_live = _read_json(REPORTS / "pf_live.json")
-    pf_local_adj = _read_json(REPORTS / "pf_local_adj.json")
-    pf_live_adj = _read_json(REPORTS / "pf_live_adj.json")
-    last_equity = _last_equity(REPORTS / "equity_curve.jsonl")
+    pf_norm = _read_json(REPORTS / "pf_local_norm.json")
+    pf_live_weighted = _read_json(REPORTS / "pf_local_live.json")
 
-    pf = pf_local.get("pf", "N/A")
-    pf_adj = pf_local_adj.get("pf", "N/A")
-    count = pf_live.get("count", 0)
-    print(f"PF: {pf}  |  PF_adj: {pf_adj}  |  points: {count}  |  last_equity: {last_equity}")
+    pf_full = _format_value(pf_local.get("pf", "N/A"))
+    pf_norm_val = _format_value(pf_norm.get("pf", "N/A"))
+    pf_live_val = _format_value(pf_live_weighted.get("pf", "N/A"))
+
+    last_equity_norm = _format_value(_last_equity(REPORTS / "equity_curve_norm.jsonl"))
+    last_equity_live = _format_value(_last_equity(REPORTS / "equity_curve_live.jsonl"))
+
+    print(
+        f"PF_full={pf_full} | "
+        f"PF_norm={pf_norm_val} | "
+        f"PF_live={pf_live_val} | "
+        f"last_equity_norm={last_equity_norm} | "
+        f"last_equity_live={last_equity_live}"
+    )
 
 
 if __name__ == "__main__":
