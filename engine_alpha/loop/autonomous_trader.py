@@ -34,11 +34,14 @@ def _annotate_last_open(pa_mult: float, adapter: dict, total_mult: float) -> Non
         return
     if last.get("type") != "open":
         return
+    band = adapter.get("band")
     last["risk_mult"] = total_mult
+    if band is not None:
+        last["risk_band"] = band
     last["risk_factors"] = {
         "pa": pa_mult,
         "adapter": float(adapter.get("mult", 1.0)),
-        "band": adapter.get("band"),
+        "band": band,
     }
     lines[-1] = json.dumps(last)
     TRADES_PATH.write_text("\n".join(lines) + "\n")
@@ -68,8 +71,13 @@ def run_step(entry_min_conf: float = 0.58, exit_min_conf: float = 0.42, reverse_
 
     pa_status = pa_evaluate(REPORTS / "pa_status.json")
     pa_mult = pa_rmult(REPORTS / "pa_status.json") if policy.get("allow_pa", True) else 1.0
-    adapter = risk_eval()
+    adapter = risk_eval() or {}
+    if not isinstance(adapter, dict):
+        adapter = {}
     adapter_mult = float(adapter.get("mult", 1.0))
+    adapter_band = adapter.get("band") or "N/A"
+    adapter["mult"] = adapter_mult
+    adapter["band"] = adapter_band
     rmult = max(0.5, min(1.25, float(pa_mult) * adapter_mult))
 
     opened = False
@@ -125,18 +133,21 @@ def run_step_live(symbol: str = "ETHUSDT",
 
     pa_status = pa_evaluate(REPORTS / "pa_status.json")
     pa_mult = pa_rmult(REPORTS / "pa_status.json") if policy.get("allow_pa", True) else 1.0
-    adapter = risk_eval()
+    adapter = risk_eval() or {}
+    if not isinstance(adapter, dict):
+        adapter = {}
     adapter_mult = float(adapter.get("mult", 1.0))
+    adapter_band = adapter.get("band") or "N/A"
+    adapter["mult"] = adapter_mult
+    adapter["band"] = adapter_band
     rmult = max(0.5, min(1.25, float(pa_mult) * adapter_mult))
 
     opened = False
     if policy.get("allow_opens", True):
-        opened = open_if_allowed(
-            final_dir=final["dir"],
-            final_conf=final["conf"],
-            entry_min_conf=entry_min_conf,
-            risk_mult=rmult,
-        )
+        opened = open_if_allowed(final_dir=final["dir"],
+                                 final_conf=final["conf"],
+                                 entry_min_conf=entry_min_conf,
+                                 risk_mult=rmult)
         if opened:
             _annotate_last_open(float(pa_mult), adapter, rmult)
 
@@ -151,12 +162,10 @@ def run_step_live(symbol: str = "ETHUSDT",
             pnl = final["conf"] if final["dir"] == pos["dir"] else -final["conf"]
             close_now(pct=pnl)
             if flip and policy.get("allow_opens", True):
-                if open_if_allowed(
-                    final_dir=final["dir"],
-                    final_conf=final["conf"],
-                    entry_min_conf=entry_min_conf,
-                    risk_mult=rmult,
-                ):
+                if open_if_allowed(final_dir=final["dir"],
+                                   final_conf=final["conf"],
+                                   entry_min_conf=entry_min_conf,
+                                   risk_mult=rmult):
                     _annotate_last_open(float(pa_mult), adapter, rmult)
 
     update_pf_reports(
