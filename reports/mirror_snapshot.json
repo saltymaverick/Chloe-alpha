@@ -1,11 +1,20 @@
 {
-  "ts": "2025-11-10T05:00:09.404988+00:00",
-  "shadow_pnl": {
-    "demo_whale_A": 1.374545627869834,
-    "demo_whale_B": 2.1140426966452233
+  "ts": "2025-11-10T07:00:24Z",
+  "window_steps": 200,
+  "sources": {
+    "hunter_targets": 1,
+    "portfolio_pf": 1.0729809908245147
   },
-  "inferences": {
-    "demo_whale_A": "Style=flow (volume/flow skew)",
-    "demo_whale_B": "Style=momentum (signals trend-following skew)"
-  }
+  "candidates": [
+    {
+      "id": "0x0000000000000000000000000000000000000000",
+      "score": 0.75,
+      "notes": "hunter",
+      "seed_params": {
+        "entry_min": 0.62,
+        "flip_min": 0.57
+      }
+    }
+  ],
+  "notes": "mirror stub"
 }

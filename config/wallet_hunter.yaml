@@ -1,0 +1,17 @@
+lookback_hours: 48
+provider: "alchemy"          # force alchemy until etherscan v2 is wired
+seed_mode: "discover"
+max_candidates: 50
+top_targets: 8
+min_tx_count: 3              # lowered for initial visibility
+exclude_hot_wallets:
+  - "binance"
+  - "okx"
+  - "coinbase"
+cap_notional_native: 5000.0
+bot_interval_s: 90
+token_min_unique: 2
+token_seeds:
+  - "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48"  # USDC
+  - "0xC02aaA39b223FE8D0A0E5C4F27eAD9083C756Cc2"  # WETH
+  - "0xdAC17F958D2ee523a2206206994597C13D831ec7"  # USDT

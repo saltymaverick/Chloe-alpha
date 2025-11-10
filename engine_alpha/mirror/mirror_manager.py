@@ -19,6 +19,7 @@ LOG_PATH = REPORTS / "mirror_manager_log.jsonl"
 PORTFOLIO_PF_PATH = REPORTS / "portfolio" / "portfolio_pf.json"
 COUNCIL_PATH = REPORTS / "council_weights.json"
 BEHAVIOR_PATH = REPORTS / "mirror" / "behavior.json"
+HUNTER_TARGETS_PATH = REPORTS / "mirror" / "targets.json"
 
 
 def _now() -> str:
@@ -78,6 +79,20 @@ def build_candidates_from_observer(min_score: float = 0.65, max_candidates: int 
     return selected
 
 
+def _write_candidates(candidates: List[Dict[str, Any]], source: str, ts: str) -> None:
+    try:
+        CANDIDATES_PATH.parent.mkdir(parents=True, exist_ok=True)
+        CANDIDATES_PATH.write_text(json.dumps(candidates, indent=2))
+    except Exception:
+        pass
+    try:
+        LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
+        with LOG_PATH.open("a") as handle:
+            handle.write(json.dumps({"ts": ts, "candidates": len(candidates), "source": source}) + "\n")
+    except Exception:
+        pass
+
+
 def run_shadow(window_steps: int = 200) -> Dict[str, Any]:
     """Build a paper-only mirror snapshot from existing on-disk reports."""
     snapshot: Dict[str, Any] = {
@@ -91,6 +106,21 @@ def run_shadow(window_steps: int = 200) -> Dict[str, Any]:
     cfg = load_observer_cfg()
     min_score = float(cfg.get("min_score", 0.65))
     max_candidates = int(cfg.get("max_candidates", 5))
+
+    hunter_targets = _read_json(HUNTER_TARGETS_PATH)
+    hunter_candidates: List[Dict[str, Any]] = []
+    if isinstance(hunter_targets, list):
+        for address in hunter_targets:
+            if isinstance(address, str) and address:
+                hunter_candidates.append(
+                    {
+                        "id": address.lower(),
+                        "score": 0.75,
+                        "notes": "hunter",
+                        "seed_params": {"entry_min": 0.62, "flip_min": 0.57},
+                    }
+                )
+    snapshot["sources"]["hunter_targets"] = len(hunter_candidates)
 
     observer_candidates = build_candidates_from_observer(min_score=min_score, max_candidates=max_candidates)
 
@@ -129,7 +159,15 @@ def run_shadow(window_steps: int = 200) -> Dict[str, Any]:
             }
         )
 
-    final_candidates = observer_candidates or candidates
+    if hunter_candidates:
+        final_candidates = hunter_candidates
+        source_label = "hunter"
+    elif observer_candidates:
+        final_candidates = observer_candidates
+        source_label = "observer"
+    else:
+        final_candidates = candidates
+        source_label = "stub"
     snapshot["candidates"] = final_candidates
 
     try:
@@ -138,31 +176,7 @@ def run_shadow(window_steps: int = 200) -> Dict[str, Any]:
     except Exception:
         pass
 
-    if not observer_candidates:
-        try:
-            CANDIDATES_PATH.parent.mkdir(parents=True, exist_ok=True)
-            CANDIDATES_PATH.write_text(json.dumps(final_candidates, indent=2))
-        except Exception:
-            pass
-        try:
-            LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
-            with LOG_PATH.open("a") as handle:
-                handle.write(json.dumps({"ts": snapshot["ts"], "candidates": len(final_candidates), "source": "stub"}) + "\n")
-        except Exception:
-            pass
-
-    try:
-        CANDIDATES_PATH.parent.mkdir(parents=True, exist_ok=True)
-        CANDIDATES_PATH.write_text(json.dumps(candidates, indent=2))
-    except Exception:
-        pass
-
-    try:
-        LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
-        with LOG_PATH.open("a") as handle:
-            handle.write(json.dumps({"ts": snapshot["ts"], "candidates": len(candidates)}) + "\n")
-    except Exception:
-        pass
+    _write_candidates(final_candidates, source_label, snapshot["ts"])
 
     return snapshot
 

@@ -664,6 +664,45 @@ def _section_risk_exec() -> Dict[str, Any]:
     return {"ok": ok, "optional": True, "details": details}
 
 
+def _section_evolution() -> Dict[str, Any]:
+    horizon = timedelta(hours=48)
+    candidates_path = REPORTS / "mirror_candidates.json"
+    log_path = REPORTS / "mirror_manager_log.jsonl"
+    proposals_path = REPORTS / "promotion_proposals.jsonl"
+
+    candidate_count = 0
+    if candidates_path.exists():
+        try:
+            data = json.loads(candidates_path.read_text())
+            if isinstance(data, list):
+                candidate_count = len(data)
+        except Exception:
+            candidate_count = 0
+
+    candidate_ts = None
+    log_tail = _read_jsonl_tail(log_path, 1)
+    if log_tail:
+        candidate_ts = log_tail[0].get("ts")
+
+    proposals_meta = _recent_counts(proposals_path, horizon)
+    ok = False
+    if candidate_ts:
+        try:
+            ts_dt = datetime.fromisoformat(candidate_ts.replace("Z", "+00:00"))
+            ok = (datetime.now(timezone.utc) - ts_dt) <= horizon and candidate_count > 0
+        except Exception:
+            pass
+    if proposals_meta["count"] > 0:
+        ok = True
+
+    details = {
+        "candidates": candidate_count,
+        "proposals": proposals_meta["count"],
+        "last_ts": proposals_meta["ts"] or candidate_ts,
+    }
+    return {"ok": ok, "optional": True, "details": details}
+
+
 def main() -> int:
     sections = {
         "feeds": _section_feeds(),
@@ -687,6 +726,7 @@ def main() -> int:
         "pipeline": _section_pipeline(),
         "auto_apply": _section_auto_apply(),
         "risk_exec": _section_risk_exec(),
+        "evolution": _section_evolution(),
     }
     blocking_sections = {
         name: section for name, section in sections.items() if not section.get("optional")
