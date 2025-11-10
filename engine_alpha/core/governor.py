@@ -196,12 +196,21 @@ def run_once() -> Dict[str, Any]:
     gpt_prompt = f"{prompt_template}\n\nSummary:\n{json.dumps(summary, indent=2)}"
     gpt_result = query_gpt(gpt_prompt, "governance")
 
+    dream_proposals = _load_dream_proposals()
+    proposals_by_kind: Dict[str, List[Dict[str, Any]]] = {}
+    for proposal in dream_proposals:
+        kind = proposal.get("kind")
+        if isinstance(kind, str) and kind in {"gates", "weights"}:
+            proposals_by_kind.setdefault(kind, []).append(proposal)
+
     payload = {
         "ts": _now(),
         "modules": modules,
         "sci": _clamp(sci),
         "recommendation": recommendation,
     }
+    if proposals_by_kind:
+        payload["proposals"] = proposals_by_kind
     if gpt_result:
         payload["gpt_reason"] = gpt_result.get("text")
         payload["gpt_cost_usd"] = gpt_result.get("cost_usd")

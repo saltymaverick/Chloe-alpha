@@ -568,30 +568,49 @@ def _section_sandbox() -> Dict[str, Any]:
     return {"ok": ok, "details": details}
 
 
+def _recent_counts(path: Path, horizon: timedelta) -> Dict[str, Any]:
+    cutoff = datetime.now(timezone.utc) - horizon
+    count = 0
+    latest: Optional[str] = None
+    if not path.exists():
+        return {"count": 0, "ts": None}
+    try:
+        for raw in path.read_text().splitlines():
+            raw = raw.strip()
+            if not raw:
+                continue
+            try:
+                entry = json.loads(raw)
+            except Exception:
+                continue
+            ts = entry.get("ts")
+            if not isinstance(ts, str):
+                continue
+            try:
+                parsed = datetime.fromisoformat(ts.replace("Z", "+00:00"))
+            except Exception:
+                continue
+            if parsed >= cutoff:
+                count += 1
+                if latest is None or ts > latest:
+                    latest = ts
+    except Exception:
+        return {"count": 0, "ts": None}
+    return {"count": count, "ts": latest}
+
+
 def _section_pipeline() -> Dict[str, Any]:
-    queue_tail = _read_jsonl_tail(REPORTS / "reflection_queue.jsonl", lines=1)
-    scored_tail = _read_jsonl_tail(REPORTS / "dream_proposals_scored.jsonl", lines=1)
+    horizon = timedelta(hours=48)
+    queue_meta = _recent_counts(REPORTS / "reflection_queue.jsonl", horizon)
+    scored_meta = _recent_counts(REPORTS / "dream_proposals_scored.jsonl", horizon)
 
-    def _extract_ts(items: List[Dict[str, Any]]) -> Optional[str]:
-        if not items:
-            return None
-        ts_val = items[-1].get("ts")
-        return ts_val if isinstance(ts_val, str) else None
-
-    queue_ts = _extract_ts(queue_tail)
-    scored_ts = _extract_ts(scored_tail)
-
-    ok = False
+    ok = queue_meta["count"] > 0 or scored_meta["count"] > 0
     details: Dict[str, Any] = {
-        "queue_count": len(queue_tail),
-        "scored_count": len(scored_tail),
+        "queue_count": queue_meta["count"],
+        "scored_count": scored_meta["count"],
+        "queue_ts": queue_meta["ts"],
+        "scored_ts": scored_meta["ts"],
     }
-    if queue_ts and _within_hours(queue_ts, timedelta(hours=48)):
-        ok = True
-        details["queue_ts"] = queue_ts
-    if scored_ts and _within_hours(scored_ts, timedelta(hours=48)):
-        ok = True
-        details["scored_ts"] = scored_ts
     return {"ok": ok, "optional": True, "details": details}
 
 

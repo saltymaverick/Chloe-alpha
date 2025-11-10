@@ -21,7 +21,7 @@ from engine_alpha.core.confidence_engine import decide
 from engine_alpha.core.regime import RegimeClassifier
 
 REFLECTION_QUEUE_PATH = REPORTS / "reflection_queue.jsonl"
-REFLECTION_QUEUE_SEEN = REPORTS / "reflection_queue_last_ts.json"
+REFLECTION_QUEUE_SEEN = REPORTS / "dream_queue_seen.json"
 PROPOSALS_SCORED_PATH = REPORTS / "dream_proposals_scored.jsonl"
 
 
@@ -395,7 +395,7 @@ def run_dream(window_steps: int = 200) -> Dict[str, Any]:
         else:  # weights kind
             bucket_scalar = float(payload.get("scalar", 0.0))
             pf_cf = baseline_pf + bucket_scalar * 0.01  # heuristic lift
-        uplift = pf_cf - baseline_pf
+        uplift = pf_cf - pf_local
         recommend = "apply" if uplift >= 0.03 else "hold"
         scored_proposals.append(
             {
@@ -414,6 +414,7 @@ def run_dream(window_steps: int = 200) -> Dict[str, Any]:
         with PROPOSALS_SCORED_PATH.open("a") as handle:
             for proposal in scored_proposals:
                 handle.write(json.dumps(proposal) + "\n")
+    if queue_items:
         _mark_queue_consumed(queue_items)
 
     context_summary = {
@@ -423,6 +424,7 @@ def run_dream(window_steps: int = 200) -> Dict[str, Any]:
         "trades": trades_summary,
         "proposal_kind": proposal_kind,
         "best_delta": delta,
+        "baseline_pf_adj": pf_local,
     }
 
     gpt_text = _maybe_run_gpt(context_summary)
@@ -478,6 +480,7 @@ def run_dream(window_steps: int = 200) -> Dict[str, Any]:
         "governance": governance_summary,
         "trades": trades_summary,
         "gpt_text": gpt_text,
+        "baseline_pf_adj": pf_local,
     }
 
     snapshot_path = REPORTS / "dream_snapshot.json"
@@ -492,6 +495,7 @@ def run_dream(window_steps: int = 200) -> Dict[str, Any]:
         "trades": trades_summary,
         "proposal_kind": proposal_kind,
         "gpt_text": gpt_text,
+        "baseline_pf_adj": pf_local,
         "proposals_scored": [
             {
                 "kind": item.get("kind"),

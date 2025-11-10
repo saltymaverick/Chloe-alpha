@@ -6,6 +6,7 @@ Reflection and confidence calibration.
 import json
 from pathlib import Path
 from typing import Dict, Any, List, Optional
+import re
 from datetime import datetime, timezone
 
 from engine_alpha.core.paths import REPORTS
@@ -317,6 +318,93 @@ def _load_policy_context() -> Dict[str, Any]:
         )
     return context
 
+_GATE_TOKENS = (
+    ("entry", "entry_delta"),
+    ("exit", "exit_delta"),
+    ("reverse", "flip_delta"),
+    ("flip", "flip_delta"),
+)
+
+_BUCKET_TOKENS = ["momentum", "meanrev", "flow", "positioning", "timing"]
+
+
+def _infer_scope(text_lower: str) -> str:
+    if "trend" in text_lower:
+        return "trend"
+    if "chop" in text_lower:
+        return "chop"
+    for token in ("high vol", "high-vol", "high_vol"):
+        if token in text_lower:
+            return "high_vol"
+    return "global"
+
+
+def _parse_delta(raw: str, has_percent: bool) -> Optional[float]:
+    try:
+        value = float(raw.replace(" ", ""))
+    except Exception:
+        return None
+    if has_percent:
+        value /= 100.0
+    return value
+
+
+def _extract_gate_payload(text_lower: str) -> Dict[str, float]:
+    payload: Dict[str, float] = {}
+    for token, key in _GATE_TOKENS:
+        pattern = rf"{token}[^+\-]*([+\-]\s*\d+(?:\.\d+)?)(%)?"
+        match = re.search(pattern, text_lower)
+        if match:
+            delta = _parse_delta(match.group(1), bool(match.group(2)))
+            if delta is not None:
+                payload[key] = delta
+    return payload
+
+
+def _extract_weight_payload(text_lower: str) -> Dict[str, float]:
+    payload: Dict[str, float] = {}
+    for bucket in _BUCKET_TOKENS:
+        pattern = rf"{bucket}[^+\-]*([+\-]\s*\d+(?:\.\d+)?)(%)?"
+        match = re.search(pattern, text_lower)
+        if match:
+            delta = _parse_delta(match.group(1), bool(match.group(2)))
+            if delta is not None:
+                payload.setdefault("deltas", {})[bucket] = delta
+    return payload
+
+
+def _extract_queue_items_from_text(reflection_text: Optional[str], ts: str) -> List[Dict[str, Any]]:
+    if not isinstance(reflection_text, str) or not reflection_text.strip():
+        return []
+    text_lower = reflection_text.lower()
+    scope = _infer_scope(text_lower)
+    queue: List[Dict[str, Any]] = []
+
+    gate_payload = _extract_gate_payload(text_lower)
+    if gate_payload:
+        queue.append(
+            {
+                "ts": ts,
+                "kind": "gates",
+                "payload": gate_payload,
+                "scope": scope,
+                "source": "reflection",
+            }
+        )
+
+    weight_payload = _extract_weight_payload(text_lower)
+    if weight_payload:
+        queue.append(
+            {
+                "ts": ts,
+                "kind": "weights",
+                "payload": weight_payload,
+                "scope": scope,
+                "source": "reflection",
+            }
+        )
+    return queue
+
 
 def run_gpt_reflection(n: int = 20) -> Dict[str, Any]:
     """
@@ -367,31 +455,7 @@ def run_gpt_reflection(n: int = 20) -> Dict[str, Any]:
     summary_path = REPORTS / "gpt_summary.json"
     summary_path.write_text(json.dumps(record, indent=2))
 
-    # Queue actionable adjustments, if present
-    queue_items: List[Dict[str, Any]] = []
-    summary_data = record.get("context", {})
-    reflection_text = record.get("summary") or ""
-    if isinstance(summary_data, dict):
-        adjustments = summary_data.get("adjustments")
-        if isinstance(adjustments, dict) and adjustments:
-            queue_items.append(
-                {
-                    "ts": ts,
-                    "kind": "gates",
-                    "payload": adjustments,
-                    "source": "reflection",
-                }
-            )
-        council_hints = summary_data.get("council_hints")
-        if isinstance(council_hints, dict) and council_hints:
-            queue_items.append(
-                {
-                    "ts": ts,
-                    "kind": "weights",
-                    "payload": council_hints,
-                    "source": "reflection",
-                }
-            )
+    queue_items = _extract_queue_items_from_text(record.get("summary"), ts)
     if queue_items:
         queue_path = REPORTS / "reflection_queue.jsonl"
         queue_path.parent.mkdir(parents=True, exist_ok=True)
