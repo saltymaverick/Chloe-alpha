@@ -1,5 +1,5 @@
 {
-  "ts": "2025-11-10T05:17:20.797142+00:00",
+  "ts": "2025-11-10T05:37:46.375402+00:00",
   "PASS": true,
   "sections": {
     "feeds": {
@@ -65,7 +65,7 @@
     "ops": {
       "ok": true,
       "details": {
-        "ts": "2025-11-10T05:17:20.785564+00:00",
+        "ts": "2025-11-10T05:37:46.360860+00:00",
         "pf_ok": true,
         "trades_ok": true,
         "dream_ok": true,
@@ -78,7 +78,7 @@
         "pf_adj_live": 50.21581654428138,
         "pf_adj_local": 50.21581654428138,
         "points": 12,
-        "fresh_hours": 0.19,
+        "fresh_hours": 0.53,
         "curve_ok": true,
         "pf_ok": true,
         "fresh": true
@@ -230,7 +230,7 @@
     "risk": {
       "ok": true,
       "details": {
-        "ts": "2025-11-10T05:15:15.091748+00:00",
+        "ts": "2025-11-10T05:36:26.999680+00:00",
         "equity": 1447396.1549344487,
         "peak": 1447396.1549344487,
         "drawdown": 0.0,
@@ -281,7 +281,7 @@
     "orchestrator": {
       "ok": true,
       "details": {
-        "ts": "2025-11-10T05:15:14.789408+00:00",
+        "ts": "2025-11-10T05:35:03.566806+00:00",
         "inputs": {
           "sci": 0.5053498162942622,
           "rec": "REVIEW",
@@ -366,12 +366,12 @@
       }
     },
     "risk_exec": {
-      "ok": false,
+      "ok": true,
       "optional": true,
       "details": {
-        "last_equity": null,
+        "last_equity": 10040.065050009356,
         "risk_bps": null,
-        "points": 0
+        "points": 12
       }
     }
   }
