@@ -209,24 +209,34 @@ def overview_tab() -> None:
     pf_local = load_json(REPORTS / "pf_local.json")
     pf_local_adj = load_json(REPORTS / "pf_local_adj.json")
     pa_status = load_json(REPORTS / "pa_status.json")
-    mode = st.selectbox("Equity Mode", ["Full", "Risk-normalized"], index=0)
-    if mode == "Full":
-        equity_path = REPORTS / "equity_curve.jsonl"
-        pf_path = REPORTS / "pf_local.json"
-    else:
+
+    modes = ["Risk-weighted", "Risk-normalized", "Full"]
+    live_exists = (REPORTS / "equity_curve_live.jsonl").exists()
+    norm_exists = (REPORTS / "equity_curve_norm.jsonl").exists()
+    default_mode = "Risk-weighted" if live_exists else ("Risk-normalized" if norm_exists else "Full")
+    mode = st.selectbox("Equity Mode", modes, index=modes.index(default_mode))
+    if mode == "Risk-weighted":
+        equity_path = REPORTS / "equity_curve_live.jsonl"
+        pf_path = REPORTS / "pf_local_live.json"
+    elif mode == "Risk-normalized":
         equity_path = REPORTS / "equity_curve_norm.jsonl"
         pf_path = REPORTS / "pf_local_norm.json"
+    else:
+        equity_path = REPORTS / "equity_curve.jsonl"
+        pf_path = REPORTS / "pf_local.json"
 
     equity_df = load_equity_df(equity_path)
     pf_mode = load_json(pf_path)
     pf_value = pf_mode.get("pf") if isinstance(pf_mode, dict) else None
     last_equity_value = equity_df["equity"].iloc[-1] if equity_df is not None and not equity_df.empty else None
 
+    if isinstance(pf_value, (int, float)):
+        pf_display = "∞" if pf_value == float("inf") else f"{pf_value:.4f}"
+    else:
+        pf_display = "N/A"
+
     col_pf, col_adj, col_pa, col_equity = st.columns(4)
-    col_pf.metric(
-        f"PF ({mode})",
-        f"{float(pf_value):.4f}" if isinstance(pf_value, (int, float)) else "N/A",
-    )
+    col_pf.metric(f"PF ({mode})", pf_display)
     col_adj.metric("PF Local Adj", pf_local_adj.get("pf", "N/A") if pf_local_adj else "N/A")
     col_pa.metric("PA Armed", str(pa_status.get("armed", "N/A")) if pa_status else "N/A")
     col_equity.metric(
@@ -236,7 +246,9 @@ def overview_tab() -> None:
 
     if equity_df is None or len(equity_df) < 2:
         st.caption("Equity curve: N/A (need ≥2 points)")
-        if mode != "Full":
+        if mode == "Risk-weighted":
+            st.info("Run: python -m tools.diagnostic_risk_exec")
+        elif mode == "Risk-normalized":
             st.info("Run: python -m tools.normalize_equity")
     else:
         last_point = equity_df.iloc[-1]

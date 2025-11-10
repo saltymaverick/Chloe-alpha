@@ -614,6 +614,56 @@ def _section_pipeline() -> Dict[str, Any]:
     return {"ok": ok, "optional": True, "details": details}
 
 
+def _section_auto_apply() -> Dict[str, Any]:
+    audit_path = REPORTS / "auto_apply_audit.jsonl"
+    summary_path = REPORTS / "governance_vote.json"
+
+    audit_exists = audit_path.exists()
+    summary = _read_json(summary_path)
+    auto_summary = summary.get("auto_apply") if isinstance(summary, dict) else {}
+    details = {
+        "checked": auto_summary.get("checked"),
+        "staged": auto_summary.get("staged"),
+        "skipped": auto_summary.get("skipped"),
+    }
+    ok = audit_exists or any(v for v in details.values() if isinstance(v, (int, float)))
+    return {"ok": ok, "optional": True, "details": details}
+
+
+def _section_risk_exec() -> Dict[str, Any]:
+    curve_path = REPORTS / "equity_curve_live.jsonl"
+    cfg = _read_json(CONFIG / "accounting.yaml")
+    risk_bps = None
+    if isinstance(cfg, dict):
+        risk_bps = cfg.get("risk_per_trade_bps")
+
+    points = 0
+    last_equity = None
+    if curve_path.exists():
+        try:
+            for raw in curve_path.read_text().splitlines():
+                raw = raw.strip()
+                if not raw:
+                    continue
+                try:
+                    entry = json.loads(raw)
+                except Exception:
+                    continue
+                if not isinstance(entry, dict):
+                    continue
+                if entry.get("equity") is not None:
+                    last_equity = entry.get("equity")
+                if entry.get("ts") and entry.get("equity") is not None:
+                    points += 1
+        except Exception:
+            points = 0
+            last_equity = None
+
+    ok = curve_path.exists() and points >= 5
+    details = {"last_equity": last_equity, "risk_bps": risk_bps, "points": points}
+    return {"ok": ok, "optional": True, "details": details}
+
+
 def main() -> int:
     sections = {
         "feeds": _section_feeds(),
@@ -635,6 +685,8 @@ def main() -> int:
         "live_feeds": _section_live_feeds(),
         "live_loop": _section_live_loop(),
         "pipeline": _section_pipeline(),
+        "auto_apply": _section_auto_apply(),
+        "risk_exec": _section_risk_exec(),
     }
     blocking_sections = {
         name: section for name, section in sections.items() if not section.get("optional")
