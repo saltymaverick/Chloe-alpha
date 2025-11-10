@@ -213,7 +213,7 @@ def overview_tab() -> None:
     live_curve_path = REPORTS / "equity_curve_live.jsonl"
     live_exists = live_curve_path.exists()
     norm_exists = (REPORTS / "equity_curve_norm.jsonl").exists()
-    default_mode = "Risk-weighted" if live_exists else ("Risk-normalized" if norm_exists else "Full")
+    default_mode = "Risk-weighted" if (live_exists or norm_exists) else "Full"
     mode = st.selectbox("Equity Mode", modes, index=modes.index(default_mode))
     if mode == "Risk-weighted":
         equity_path = REPORTS / "equity_curve_live.jsonl"
@@ -225,6 +225,8 @@ def overview_tab() -> None:
     equity_df = load_equity_df(equity_path)
     pf_live = load_json(REPORTS / "pf_local_live.json")
     live_pf_value = pf_live.get("pf") if isinstance(pf_live, dict) else None
+    pf_norm = load_json(REPORTS / "pf_local_norm.json")
+    norm_pf_value = pf_norm.get("pf") if isinstance(pf_norm, dict) else None
     pf_full = load_json(REPORTS / "pf_local.json")
     full_pf_value = pf_full.get("pf") if isinstance(pf_full, dict) else None
     pf_label = "PF"
@@ -232,6 +234,9 @@ def overview_tab() -> None:
     if isinstance(live_pf_value, (int, float)):
         pf_label = "PF (Risk-weighted)"
         pf_value = live_pf_value
+    elif isinstance(norm_pf_value, (int, float)):
+        pf_label = "PF (Risk-normalized)"
+        pf_value = norm_pf_value
     elif isinstance(full_pf_value, (int, float)):
         pf_label = "PF (Full)"
         pf_value = full_pf_value
@@ -269,7 +274,7 @@ def overview_tab() -> None:
             x="ts:T",
             y="equity:Q",
         )
-        st.altair_chart(line + dot, use_container_width=True)
+        st.altair_chart(line + dot, width='stretch')
 
 
 def portfolio_tab() -> None:
@@ -326,7 +331,7 @@ def sandbox_tab() -> None:
             return "background-color: #fff7c2"
         return "background-color: #fecaca"
 
-    st.dataframe(df.style.applymap(highlight, subset=["pf_adj"]), use_container_width=True)
+    st.dataframe(df.style.applymap(highlight, subset=["pf_adj"]), width='stretch')
 
 
 def load_backtest_runs() -> List[Dict[str, Any]]:
@@ -389,7 +394,7 @@ def backtest_tab() -> None:
             x="ts:T",
             y="equity:Q",
         )
-        st.altair_chart(line + dot, use_container_width=True)
+        st.altair_chart(line + dot, width='stretch')
 
     trades_tail = jsonl_tail(run_dir / "trades.jsonl", n=15)
     if trades_tail:
@@ -417,7 +422,7 @@ def evolution_tab() -> None:
                 if isinstance(item, dict)
             ]
         )
-        st.dataframe(df, use_container_width=True)
+        st.dataframe(df, width='stretch')
     else:
         st.info("No mirror candidates found.")
 

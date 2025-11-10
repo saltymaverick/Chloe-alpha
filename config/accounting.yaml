@@ -1,6 +1,6 @@
 start_equity_norm: 10000.0
-risk_per_trade_bps: 100
-cap_adj_pct: 0.05
+risk_per_trade_bps: 50
+cap_adj_pct: 0.01
 use_abs: false
 start_equity_live: 10000.0
 max_gross_exposure_r: 4.0
@@ -10,3 +10,4 @@ spread_bps_cap: 25
 reject_if_spread_bps_gt: 20
 reject_if_latency_ms_gt: 2000
 write_live_equity: true
+normalize_batch: true
