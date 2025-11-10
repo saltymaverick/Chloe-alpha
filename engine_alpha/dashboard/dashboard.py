@@ -51,14 +51,14 @@ def jsonl_tail(path: Path, n: int = 1) -> List[Dict[str, Any]]:
     return out
 
 
-def load_equity_df(max_points: int = 300) -> Optional[pd.DataFrame]:
+def load_equity_df(path: Optional[Path] = None, max_points: int = 300) -> Optional[pd.DataFrame]:
     """Load equity curve from reports, returning cleaned DataFrame."""
-    path = REPORTS / "equity_curve.jsonl"
-    if not path.exists():
+    target_path = path or (REPORTS / "equity_curve.jsonl")
+    if not target_path.exists():
         return None
     try:
         rows: List[Dict[str, Any]] = []
-        for raw in path.read_text().splitlines():
+        for raw in target_path.read_text().splitlines():
             raw = raw.strip()
             if not raw:
                 continue
@@ -83,8 +83,11 @@ def load_equity_df(max_points: int = 300) -> Optional[pd.DataFrame]:
     df["equity"] = pd.to_numeric(df["equity"], errors="coerce")
     if "adj_pct" in df.columns:
         df["adj_pct"] = pd.to_numeric(df["adj_pct"], errors="coerce")
-    df = df.dropna(subset=["ts", "equity"]).sort_values("ts")
-    return df.tail(max_points) if not df.empty else None
+    df = df.dropna(subset=["ts", "equity"])\
+        .sort_values("ts")
+    if df.empty:
+        return None
+    return df.tail(max_points)
 
 
 def load_equity_df_from(path: Path, max_points: int = 300) -> Optional[pd.DataFrame]:
@@ -202,52 +205,43 @@ def render_heartbeat_and_activity() -> None:
 
 def overview_tab() -> None:
     st.header("Overview")
-    orch = load_json(REPORTS / "orchestrator_snapshot.json") or {}
-    risk = load_json(REPORTS / "risk_adapter.json") or {}
 
-    inputs = orch.get("inputs", {}) if isinstance(orch, dict) else {}
-    policy = orch.get("policy", {}) if isinstance(orch, dict) else {}
-    rec = inputs.get("rec") or orch.get("recommendation") or "N/A"
-    sci = inputs.get("sci", "N/A")
-    band = risk.get("band", "N/A")
-    mult = risk.get("mult", "N/A")
-    allow_opens = policy.get("allow_opens")
-    allow_pa = policy.get("allow_pa")
-
-    color_map = {"GO": "green", "REVIEW": "orange", "PAUSE": "red"}
-    rec_color = color_map.get(str(rec).upper(), "gray")
-
-    def icon(flag: Any) -> str:
-        if flag is True:
-            return "✅"
-        if flag is False:
-            return "❌"
-        return "N/A"
-
-    st.markdown(
-        f"**REC:** :{rec_color}[{rec}] • **SCI:** {sci if isinstance(sci, (int, float)) else 'N/A'}"
-    )
-    st.markdown(
-        f"**Risk Band:** {band} • **Mult:** {mult if isinstance(mult, (int, float)) else mult}"
-    )
-    st.markdown(f"**Opens:** {icon(allow_opens)} • **PA:** {icon(allow_pa)}")
-
-    pf_local = load_json(REPORTS / "pf_local.json") or {}
-    pf_local_adj = load_json(REPORTS / "pf_local_adj.json") or {}
-    pa_status = load_json(REPORTS / "pa_status.json") or {}
-
-    col_pf, col_adj, col_pa = st.columns(3)
-    col_pf.metric("PF Local", pf_local.get("pf", "N/A"))
-    col_adj.metric("PF Local Adj", pf_local_adj.get("pf", "N/A"))
-    col_pa.metric("PA Armed", pa_status.get("armed", "N/A"))
-
-    df = load_equity_df()
-    if df is None or len(df) < 2:
-        st.caption("Equity curve: N/A (need ≥2 points)")
+    pf_local = load_json(REPORTS / "pf_local.json")
+    pf_local_adj = load_json(REPORTS / "pf_local_adj.json")
+    pa_status = load_json(REPORTS / "pa_status.json")
+    mode = st.selectbox("Equity Mode", ["Full", "Risk-normalized"], index=0)
+    if mode == "Full":
+        equity_path = REPORTS / "equity_curve.jsonl"
+        pf_path = REPORTS / "pf_local.json"
     else:
-        last_point = df.iloc[-1]
-        color = "green" if float(last_point.get("adj_pct") or 0.0) >= 0 else "red"
-        line = alt.Chart(df).mark_line(strokeWidth=2).encode(
+        equity_path = REPORTS / "equity_curve_norm.jsonl"
+        pf_path = REPORTS / "pf_local_norm.json"
+
+    equity_df = load_equity_df(equity_path)
+    pf_mode = load_json(pf_path)
+    pf_value = pf_mode.get("pf") if isinstance(pf_mode, dict) else None
+    last_equity_value = equity_df["equity"].iloc[-1] if equity_df is not None and not equity_df.empty else None
+
+    col_pf, col_adj, col_pa, col_equity = st.columns(4)
+    col_pf.metric(
+        f"PF ({mode})",
+        f"{float(pf_value):.4f}" if isinstance(pf_value, (int, float)) else "N/A",
+    )
+    col_adj.metric("PF Local Adj", pf_local_adj.get("pf", "N/A") if pf_local_adj else "N/A")
+    col_pa.metric("PA Armed", str(pa_status.get("armed", "N/A")) if pa_status else "N/A")
+    col_equity.metric(
+        f"Last Equity ({mode})",
+        f"{float(last_equity_value):,.2f}" if isinstance(last_equity_value, (int, float)) else "N/A",
+    )
+
+    if equity_df is None or len(equity_df) < 2:
+        st.caption("Equity curve: N/A (need ≥2 points)")
+        if mode != "Full":
+            st.info("Run: python -m tools.normalize_equity")
+    else:
+        last_point = equity_df.iloc[-1]
+        color = "green" if last_point.get("adj_pct", 0.0) >= 0 else "red"
+        line = alt.Chart(equity_df).mark_line(strokeWidth=2).encode(
             x=alt.X("ts:T", title="Time"),
             y=alt.Y("equity:Q", title="Equity ($)"),
         )

@@ -1,0 +1,4 @@
+start_equity_norm: 10000.0
+risk_per_trade_bps: 100
+cap_adj_pct: 0.05
+use_abs: false
