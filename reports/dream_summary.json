@@ -1,16 +1,5 @@
 {
   "ts": "2025-11-10T03:29:01.435670+00:00",
-  "window_steps": 200,
-  "pf_local": 15.083250283371443,
-  "baseline_pf_cf": 0.9313621801726896,
-  "best_pf_cf": 1.0162479617584246,
-  "proposal_kind": "hold",
-  "best_combo": {
-    "entry_min": 0.5933333333333333,
-    "exit_min": 0.42,
-    "flip_min": 0.53,
-    "pf_cf": 1.0162479617584246
-  },
   "pf_adj_trend": {
     "slope_50_pct": 0.8048020629032192,
     "slope_10_pct": 0.8048020629032192
@@ -49,5 +38,6 @@
     "losses": 2,
     "avg_abs_close_pct": 0.41892009487898874
   },
+  "proposal_kind": "hold",
   "gpt_text": "### Reflection on Dream Mode Analytics\n\n#### Performance Trends\n- **PF Adjusted Trend**: Both the 50% and 10% slopes are positive (0.80), indicating a strong upward trend in performance metrics.\n  \n#### Council Insights\n- **Trend Analysis**: \n  - **Momentum**: Slightly positive (0.01), suggesting stability but lack of strong movement.\n  - **Mean Reversion**: Neutral (0.0), indicating no significant tendency to revert to the mean.\n  - **Flow**: Negative (-0.01), which may indicate potential outflows or reduced engagement.\n  - **Positioning and Timing**: Both at 0.0, indicating no clear directional bias or timing advantage.\n\n- **Chop and High Volatility**: Similar metrics as the trend analysis, reinforcing the lack of strong directional movement or volatility.\n\n#### Governance\n- **SCI Score**: Moderate at 0.45, suggesting room for improvement.\n- **Recommendation**: \"REVIEW\" indicates a need for further analysis or adjustment in governance strategies.\n\n#### Trade Performance\n- **Trade Metrics**: \n  - 7 opens and 5 closes indicate active trading.\n  - Win rate is 60% (3 wins out of 5 closes), which is positive.\n  - Average absolute close percentage of 41.89% suggests profitable trades, but further analysis is needed to assess risk and reward balance.\n\n#### Proposal Kind\n- **Current Strategy**: \"Hold\" suggests a cautious approach, likely in response to mixed signals from the analytics.\n\n#### Best Delta\n- **Best Delta**: -14.07 indicates a significant deviation, warranting investigation into factors contributing to this outcome.\n\n### Conclusion\nThe analytics reflect a generally positive performance trend but highlight areas of concern regarding flow and governance. The recommendation to review governance practices and the cautious \"hold\" strategy suggest a need for careful monitoring and potential adjustments in response to market conditions."
 }

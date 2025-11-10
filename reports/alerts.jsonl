@@ -1,2 +1,10 @@
 {"ts": "2025-11-09T18:56:16.096782+00:00", "level": "warn", "code": "live_loop_stale", "details": {"age_seconds": 3376}}
 {"ts": "2025-11-09T19:00:13.415908+00:00", "level": "warn", "code": "live_loop_stale", "details": {"age_seconds": 3613}}
+{"ts": "2025-11-09T20:00:03.430796+00:00", "level": "warn", "code": "live_loop_stale", "details": {"age_seconds": 3603}}
+{"ts": "2025-11-09T21:00:10.566988+00:00", "level": "warn", "code": "live_loop_stale", "details": {"age_seconds": 3610}}
+{"ts": "2025-11-09T22:00:13.403914+00:00", "level": "warn", "code": "live_loop_stale", "details": {"age_seconds": 3613}}
+{"ts": "2025-11-09T23:00:15.835175+00:00", "level": "warn", "code": "live_loop_stale", "details": {"age_seconds": 3615}}
+{"ts": "2025-11-10T00:00:01.777212+00:00", "level": "warn", "code": "live_loop_stale", "details": {"age_seconds": 3601}}
+{"ts": "2025-11-10T01:00:02.186089+00:00", "level": "warn", "code": "live_loop_stale", "details": {"age_seconds": 3602}}
+{"ts": "2025-11-10T02:00:23.441651+00:00", "level": "warn", "code": "live_loop_stale", "details": {"age_seconds": 3623}}
+{"ts": "2025-11-10T03:00:33.434705+00:00", "level": "warn", "code": "live_loop_stale", "details": {"age_seconds": 3633}}

@@ -2,9 +2,9 @@
   "armed": false,
   "last_change_ts": "2025-11-09T19:15:52Z",
   "reason": "init_reset",
-  "pf_local": 0.0,
-  "pf_live": 0.0,
-  "count": 0,
+  "pf_local": 10.055500188914294,
+  "pf_live": 10.055500188914294,
+  "count": 10,
   "gates_triplet": [
     0.08,
     0.05,

@@ -19,6 +19,7 @@ from engine_alpha.loop.position_manager import (
     get_live_position,
     set_live_position,
     clear_live_position,
+    clear_position,
 )
 from engine_alpha.reflect.trade_analysis import update_pf_reports
 
@@ -260,6 +261,7 @@ def run_step_live(symbol: str = "ETHUSDT",
         if close_pct is not None:
             close_now(pct=close_pct)
             clear_live_position()
+            clear_position()
             if reopen_after_flip:
                 if open_if_allowed(
                     final_dir=final["dir"],
