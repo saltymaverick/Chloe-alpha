@@ -15,6 +15,7 @@ import yaml
 
 from engine_alpha.core.gpt_client import load_prompt, query_gpt
 from engine_alpha.core.paths import CONFIG, REPORTS
+from engine_alpha.core import auto_apply
 
 # Optional dotenv support without hard dependency
 try:  # pragma: no cover
@@ -211,6 +212,10 @@ def run_once() -> Dict[str, Any]:
     }
     if proposals_by_kind:
         payload["proposals"] = proposals_by_kind
+    auto_apply_summary = auto_apply.run_once()
+    if auto_apply_summary:
+        payload["auto_apply"] = auto_apply_summary
+
     if gpt_result:
         payload["gpt_reason"] = gpt_result.get("text")
         payload["gpt_cost_usd"] = gpt_result.get("cost_usd")

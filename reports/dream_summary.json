@@ -1,5 +1,5 @@
 {
-  "ts": "2025-11-10T04:24:51.330223+00:00",
+  "ts": "2025-11-10T04:40:09.925455+00:00",
   "pf_adj_trend": {
     "slope_50_pct": 6.191040728314158,
     "slope_10_pct": 6.191040728314158
@@ -39,6 +39,34 @@
     "avg_abs_close_pct": 0.5515113924934499
   },
   "proposal_kind": "hold",
-  "gpt_text": "### Reflection on Dream Mode Analytics\n\n**1. Performance Metrics:**\n- **Trades Overview:**\n  - **Opens:** 12\n  - **Closes:** 10\n  - **Wins:** 8 (80% win rate)\n  - **Losses:** 2\n  - **Average Absolute Close Percentage:** 0.55% indicates a generally positive performance in closed trades.\n\n**2. Trend Analysis:**\n- **PF Adjusted Trend:**\n  - **Slope (50% & 10%):** 6.19 suggests a consistent upward trend, indicating potential growth.\n  \n- **Council Metrics:**\n  - **Momentum:** 0.01 across all categories reflects weak upward momentum.\n  - **Flow:** Negative at -0.01 indicates potential outflow or selling pressure.\n  - **Positioning, Timing, and Mean Reversion:** All at 0.0 suggest a neutral stance with no significant shifts expected.\n\n**3. Governance:**\n- **SCI (Scorecard Indicator):** 0.45 indicates a moderate level of confidence.\n- **Recommendation:** \"REVIEW\" suggests the need for further evaluation of strategies or positions.\n\n**4. Proposal:**\n- **Kind:** \"Hold\" indicates a cautious approach, likely due to mixed signals from the trend and governance metrics.\n\n**5. Best Delta:**\n- **Value:** -40.24 suggests a significant potential downside, warranting careful consideration in decision-making.\n\n### Conclusion\nThe analytics present a mixed outlook with strong trade performance but weak momentum and negative flow indicators. A cautious \"hold\" proposal aligns with the governance recommendation to review current strategies, especially given the negative best delta. Further analysis is needed to address the outflow and momentum concerns.",
-  "proposals_scored": []
+  "gpt_text": null,
+  "baseline_pf_adj": 41.34743507429556,
+  "proposals_scored": [
+    {
+      "kind": "gates",
+      "uplift": -40.33118711253714,
+      "recommend": "hold",
+      "pf_cf": 1.0162479617584246,
+      "payload": {
+        "entry_min_delta": 0.02,
+        "flip_min_delta": 0.02
+      }
+    },
+    {
+      "kind": "weights",
+      "uplift": -40.33118711253714,
+      "recommend": "hold",
+      "pf_cf": 1.0162479617584246,
+      "payload": {
+        "chop": {
+          "flow": -0.01,
+          "positioning": 0.01
+        },
+        "high_vol": {
+          "flow": -0.01,
+          "positioning": 0.01
+        }
+      }
+    }
+  ]
 }

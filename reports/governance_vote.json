@@ -1,5 +1,5 @@
 {
-  "ts": "2025-11-10T02:56:58.803927+00:00",
+  "ts": "2025-11-10T04:45:30.786792+00:00",
   "modules": {
     "dream": {
       "enabled": true,
@@ -18,13 +18,19 @@
     },
     "mirror": {
       "enabled": true,
-      "score": 0.5,
+      "score": 0.7153206605496765,
       "note": "portfolio PF/1.5"
     }
   },
-  "sci": 0.4515196511568431,
+  "sci": 0.5053498162942622,
   "recommendation": "REVIEW",
-  "gpt_reason": "The system has chosen \"REVIEW\" based on the following analysis of the provided scores:\n\n1. **Overall Recommendation**: The recommendation is \"REVIEW,\" which indicates that the system found the input to be ambiguous or requiring further evaluation rather than a straightforward decision.\n\n2. **SCI Score**: The SCI (System Confidence Index) score is 0.4515, which is below the typical threshold for a \"GO\" decision (usually above 0.5). This suggests that the system lacks sufficient confidence in making a definitive recommendation.\n\n3. **Module Scores**:\n   - **Dream**: 0.5 (enabled) - This score is at the threshold, indicating uncertainty.\n   - **Evolver**: 0.5 (enabled) - Similar to Dream, this score is also at the threshold.\n   - **Sandbox**: 0.3061 (enabled) - This score is significantly lower, indicating a lack of robustness in this area.\n   - **Mirror**: 0.5 (enabled) - Again, this score is at the threshold.\n\n4. **Conclusion**: The combination of several module scores being at the threshold (0.5) and one module (Sandbox) being notably lower (0.3061) contributes to the decision to \"REVIEW.\" The system indicates that further analysis is required to clarify the overall recommendation before proceeding with a \"GO\" or \"PAUSE.\"",
-  "gpt_cost_usd": 0.0,
-  "gpt_tokens": 458
+  "auto_apply": {
+    "checked": 0,
+    "staged": 0,
+    "skipped": 0,
+    "governance_ok": false,
+    "risk_ok": true,
+    "last_ts": null
+  },
+  "gpt_reason": null
 }

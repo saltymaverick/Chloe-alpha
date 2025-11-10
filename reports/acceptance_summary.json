@@ -1,5 +1,5 @@
 {
-  "ts": "2025-11-10T04:13:21.566523+00:00",
+  "ts": "2025-11-10T05:17:20.797142+00:00",
   "PASS": true,
   "sections": {
     "feeds": {
@@ -26,10 +26,10 @@
     "pf_pa": {
       "ok": true,
       "details": {
-        "pf_local": 41.34743507429556,
-        "pf_live": 41.34743507429556,
+        "pf_local": 51.40293526320986,
+        "pf_live": 51.40293526320986,
         "armed": true,
-        "count": 20,
+        "count": 26,
         "gate_consistent": true
       }
     },
@@ -49,7 +49,7 @@
       "ok": true,
       "optional": true,
       "details": {
-        "ts": "2025-11-10T03:46:46.255481+00:00",
+        "ts": "2025-11-10T04:40:09.925455+00:00",
         "fresh": true,
         "rec": "REVIEW",
         "sci": 0.4515196511568431,
@@ -59,13 +59,13 @@
     "mirror": {
       "ok": true,
       "details": {
-        "ts": "2025-11-10T04:00:24.551467+00:00"
+        "ts": "2025-11-10T05:00:09.404988+00:00"
       }
     },
     "ops": {
       "ok": true,
       "details": {
-        "ts": "2025-11-10T04:13:21.558016+00:00",
+        "ts": "2025-11-10T05:17:20.785564+00:00",
         "pf_ok": true,
         "trades_ok": true,
         "dream_ok": true,
@@ -75,10 +75,10 @@
     "accounting": {
       "ok": true,
       "details": {
-        "pf_adj_live": 40.39300267142727,
-        "pf_adj_local": 40.39300267142727,
-        "points": 10,
-        "fresh_hours": 0.0,
+        "pf_adj_live": 50.21581654428138,
+        "pf_adj_local": 50.21581654428138,
+        "points": 12,
+        "fresh_hours": 0.19,
         "curve_ok": true,
         "pf_ok": true,
         "fresh": true
@@ -230,9 +230,9 @@
     "risk": {
       "ok": true,
       "details": {
-        "ts": "2025-11-10T04:13:21.300432+00:00",
-        "equity": 322446.48222489253,
-        "peak": 322446.48222489253,
+        "ts": "2025-11-10T05:15:15.091748+00:00",
+        "equity": 1447396.1549344487,
+        "peak": 1447396.1549344487,
         "drawdown": 0.0,
         "band": "A",
         "mult": 1.0,
@@ -242,7 +242,7 @@
     "governance": {
       "ok": true,
       "details": {
-        "ts": "2025-11-10T02:56:58.803927+00:00",
+        "ts": "2025-11-10T04:45:30.786792+00:00",
         "modules": {
           "dream": {
             "enabled": true,
@@ -261,29 +261,35 @@
           },
           "mirror": {
             "enabled": true,
-            "score": 0.5,
+            "score": 0.7153206605496765,
             "note": "portfolio PF/1.5"
           }
         },
-        "sci": 0.4515196511568431,
+        "sci": 0.5053498162942622,
         "recommendation": "REVIEW",
-        "gpt_reason": "The system has chosen \"REVIEW\" based on the following analysis of the provided scores:\n\n1. **Overall Recommendation**: The recommendation is \"REVIEW,\" which indicates that the system found the input to be ambiguous or requiring further evaluation rather than a straightforward decision.\n\n2. **SCI Score**: The SCI (System Confidence Index) score is 0.4515, which is below the typical threshold for a \"GO\" decision (usually above 0.5). This suggests that the system lacks sufficient confidence in making a definitive recommendation.\n\n3. **Module Scores**:\n   - **Dream**: 0.5 (enabled) - This score is at the threshold, indicating uncertainty.\n   - **Evolver**: 0.5 (enabled) - Similar to Dream, this score is also at the threshold.\n   - **Sandbox**: 0.3061 (enabled) - This score is significantly lower, indicating a lack of robustness in this area.\n   - **Mirror**: 0.5 (enabled) - Again, this score is at the threshold.\n\n4. **Conclusion**: The combination of several module scores being at the threshold (0.5) and one module (Sandbox) being notably lower (0.3061) contributes to the decision to \"REVIEW.\" The system indicates that further analysis is required to clarify the overall recommendation before proceeding with a \"GO\" or \"PAUSE.\"",
-        "gpt_cost_usd": 0.0,
-        "gpt_tokens": 458
+        "auto_apply": {
+          "checked": 0,
+          "staged": 0,
+          "skipped": 0,
+          "governance_ok": false,
+          "risk_ok": true,
+          "last_ts": null
+        },
+        "gpt_reason": null
       }
     },
     "orchestrator": {
       "ok": true,
       "details": {
-        "ts": "2025-11-10T04:10:20.948629+00:00",
+        "ts": "2025-11-10T05:15:14.789408+00:00",
         "inputs": {
-          "sci": 0.4515196511568431,
+          "sci": 0.5053498162942622,
           "rec": "REVIEW",
           "risk_band": "A",
           "risk_mult": 1.0,
-          "pf_local": 30.166500566742886,
-          "count": 18,
-          "pa_armed": false
+          "pf_local": 51.40293526320986,
+          "count": 26,
+          "pa_armed": true
         },
         "policy": {
           "allow_opens": true,
@@ -307,7 +313,7 @@
       "ok": true,
       "optional": true,
       "details": {
-        "last_ts": "2025-11-10T04:00:23.460922+00:00",
+        "last_ts": "2025-11-10T05:00:08.518914+00:00",
         "last_codes": [
           "live_loop_stale",
           "live_loop_stale",
@@ -325,7 +331,7 @@
             "symbol": "ETHUSDT",
             "rows": 200,
             "fresh": true,
-            "last_ts": "2025-11-10T04:00:00+00:00",
+            "last_ts": "2025-11-10T05:00:00+00:00",
             "host": "https://api.binance.us"
           }
         ]
@@ -335,17 +341,37 @@
       "ok": true,
       "optional": true,
       "details": {
-        "ts": "2025-11-10T04:00:00+00:00",
+        "ts": "2025-11-10T05:00:00+00:00",
         "symbol": "ETHUSDT",
         "timeframe": "1h"
       }
     },
     "pipeline": {
+      "ok": true,
+      "optional": true,
+      "details": {
+        "queue_count": 2,
+        "scored_count": 2,
+        "queue_ts": "2025-11-10T04:40:06Z",
+        "scored_ts": "2025-11-10T04:40:06Z"
+      }
+    },
+    "auto_apply": {
       "ok": false,
       "optional": true,
       "details": {
-        "queue_count": 0,
-        "scored_count": 0
+        "checked": 0,
+        "staged": 0,
+        "skipped": 0
+      }
+    },
+    "risk_exec": {
+      "ok": false,
+      "optional": true,
+      "details": {
+        "last_equity": null,
+        "risk_bps": null,
+        "points": 0
       }
     }
   }
