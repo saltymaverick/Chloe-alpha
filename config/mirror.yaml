@@ -1,9 +1,8 @@
 chain: "ethereum"
-provider: "alchemy"
+provider: "auto"
 lookback_hours: 24
-min_usd_notional: 500.0
+min_usd_notional: 0.0
 max_candidates: 5
 min_score: 0.65
 targets:
   - "0x0000000000000000000000000000000000000000"
-  - "0x0000000000000000000000000000000000000001"
