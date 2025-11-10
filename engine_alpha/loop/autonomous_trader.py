@@ -72,27 +72,43 @@ def _load_policy() -> Dict[str, bool]:
         return {"allow_opens": True, "allow_pa": True}
 
 
-def _load_decay_bars() -> int:
+def _load_exit_config() -> Dict[str, float]:
     gates_path = CONFIG / "gates.yaml"
     try:
         with gates_path.open("r") as fh:
             data = yaml.safe_load(fh) or {}
     except Exception:
         data = {}
-    exit_cfg = data.get("EXIT") or data.get("exit")
-    value = None
-    if isinstance(exit_cfg, dict):
-        value = exit_cfg.get("DECAY_BARS") or exit_cfg.get("decay_bars")
-    try:
-        return max(1, int(value))
-    except (TypeError, ValueError):
-        return 8
+    exit_cfg = data.get("EXIT") or data.get("exit") or {}
+    if not isinstance(exit_cfg, dict):
+        exit_cfg = {}
 
+    def _get_number(key: str, fallback: float, cast=float):
+        raw = exit_cfg.get(key)
+        if raw is None:
+            raw = exit_cfg.get(key.lower())
+        try:
+            return cast(raw)
+        except (TypeError, ValueError):
+            return fallback
 
-DECAY_BARS = _load_decay_bars()
+    decay_bars = max(1, int(_get_number("DECAY_BARS", 8, int)))
+    take_profit_conf = float(max(0.0, _get_number("TAKE_PROFIT_CONF", 0.28)))
+    stop_loss_conf = float(max(0.0, _get_number("STOP_LOSS_CONF", 0.12)))
+
+    return {
+        "DECAY_BARS": decay_bars,
+        "TAKE_PROFIT_CONF": take_profit_conf,
+        "STOP_LOSS_CONF": stop_loss_conf,
+    }
 
 
 def run_step(entry_min_conf: float = 0.58, exit_min_conf: float = 0.42, reverse_min_conf: float = 0.55):
+    exit_cfg = _load_exit_config()
+    decay_bars = exit_cfg["DECAY_BARS"]
+    take_profit_conf = exit_cfg["TAKE_PROFIT_CONF"]
+    stop_loss_conf = exit_cfg["STOP_LOSS_CONF"]
+
     policy = _load_policy()
 
     out = get_signal_vector()
@@ -124,17 +140,32 @@ def run_step(entry_min_conf: float = 0.58, exit_min_conf: float = 0.42, reverse_
     if pos and pos.get("dir"):
         pos["bars_open"] = pos.get("bars_open", 0) + 1
         set_position(pos)
+        same_dir = final["dir"] != 0 and final["dir"] == pos["dir"]
+        opposite_dir = final["dir"] != 0 and final["dir"] != pos["dir"]
+        take_profit = same_dir and final["conf"] >= take_profit_conf
+        stop_loss = opposite_dir and final["conf"] >= stop_loss_conf
         flip = (final["dir"] != 0 and final["dir"] != pos["dir"] and final["conf"] >= reverse_min_conf)
         drop = (final["conf"] < exit_min_conf)
-        decay = (pos["bars_open"] >= DECAY_BARS)
-        if drop or flip or decay:
-            pnl = final["conf"] if final["dir"] == pos["dir"] else -final["conf"]
-            close_now(pct=pnl)
+        decay = (pos["bars_open"] >= decay_bars)
+
+        close_pct = None
+        if take_profit:
+            close_pct = abs(float(final.get("conf", 0.0)))
+        elif stop_loss:
+            close_pct = -abs(float(final.get("conf", 0.0)))
+        elif drop or flip or decay:
+            close_pct = float(final.get("conf", 0.0)) if same_dir else -float(final.get("conf", 0.0))
+
+        if close_pct is not None:
+            close_now(pct=close_pct)
+            clear_position()
             if flip and policy.get("allow_opens", True):
-                if open_if_allowed(final_dir=final["dir"],
-                                   final_conf=final["conf"],
-                                   entry_min_conf=entry_min_conf,
-                                   risk_mult=rmult):
+                if open_if_allowed(
+                    final_dir=final["dir"],
+                    final_conf=final["conf"],
+                    entry_min_conf=entry_min_conf,
+                    risk_mult=rmult,
+                ):
                     _annotate_last_open(float(pa_mult), adapter, rmult)
 
     update_pf_reports(TRADES_PATH,
@@ -156,6 +187,11 @@ def run_step_live(symbol: str = "ETHUSDT",
                   exit_min_conf: float = 0.42,
                   reverse_min_conf: float = 0.55,
                   bar_ts: str | None = None):
+    exit_cfg = _load_exit_config()
+    decay_bars = exit_cfg["DECAY_BARS"]
+    take_profit_conf = exit_cfg["TAKE_PROFIT_CONF"]
+    stop_loss_conf = exit_cfg["STOP_LOSS_CONF"]
+
     policy = _load_policy()
 
     out = get_signal_vector_live(symbol=symbol, timeframe=timeframe, limit=limit)
@@ -176,7 +212,7 @@ def run_step_live(symbol: str = "ETHUSDT",
 
     live_pos = get_live_position()
 
-    if policy.get("allow_opens", True):
+    if policy.get("allow_opens", True) and final["dir"] != 0:
         if not (live_pos and live_pos.get("dir") == final["dir"]):
             opened = open_if_allowed(
                 final_dir=final["dir"],
@@ -185,12 +221,12 @@ def run_step_live(symbol: str = "ETHUSDT",
                 risk_mult=rmult,
             )
             if opened:
-                set_live_position({
+                new_pos = {
                     "dir": final["dir"],
-                    "bars_open": 0,
-                    "entry_px": 1.0,
-                    "last_ts": bar_ts or _now(),
-                })
+                }
+                new_pos.update({"bars_open": 0, "entry_px": 1.0, "last_ts": bar_ts or _now()})
+                set_live_position(new_pos)
+                set_position(new_pos)
                 _annotate_last_open(float(pa_mult), adapter, rmult)
 
     live_pos = get_live_position()
@@ -198,30 +234,45 @@ def run_step_live(symbol: str = "ETHUSDT",
         live_pos["bars_open"] = live_pos.get("bars_open", 0) + 1
         live_pos["last_ts"] = bar_ts or _now()
         set_live_position(live_pos)
+        set_position(live_pos)
+        same_dir = final["dir"] != 0 and final["dir"] == live_pos["dir"]
+        opposite_dir = final["dir"] != 0 and final["dir"] != live_pos["dir"]
+        take_profit = same_dir and final["conf"] >= take_profit_conf
+        stop_loss = opposite_dir and final["conf"] >= stop_loss_conf
         flip = (
             final["dir"] != 0
             and final["dir"] != live_pos["dir"]
             and final["conf"] >= reverse_min_conf
         )
         drop = (final["conf"] < exit_min_conf)
-        decay = (live_pos["bars_open"] >= DECAY_BARS)
-        if drop or flip or decay:
-            pnl = final["conf"] if final["dir"] == live_pos["dir"] else -final["conf"]
-            close_now(pct=pnl)
+        decay = (live_pos["bars_open"] >= decay_bars)
+
+        close_pct = None
+        reopen_after_flip = False
+        if take_profit:
+            close_pct = abs(float(final.get("conf", 0.0)))
+        elif stop_loss:
+            close_pct = -abs(float(final.get("conf", 0.0)))
+        elif drop or flip or decay:
+            close_pct = float(final.get("conf", 0.0)) if same_dir else -float(final.get("conf", 0.0))
+            reopen_after_flip = flip and policy.get("allow_opens", True)
+
+        if close_pct is not None:
+            close_now(pct=close_pct)
             clear_live_position()
-            if flip and policy.get("allow_opens", True):
+            if reopen_after_flip:
                 if open_if_allowed(
                     final_dir=final["dir"],
                     final_conf=final["conf"],
                     entry_min_conf=entry_min_conf,
                     risk_mult=rmult,
                 ):
-                    set_live_position({
+                    new_pos = {
                         "dir": final["dir"],
-                        "bars_open": 0,
-                        "entry_px": 1.0,
-                        "last_ts": bar_ts or _now(),
-                    })
+                    }
+                    new_pos.update({"bars_open": 0, "entry_px": 1.0, "last_ts": bar_ts or _now()})
+                    set_live_position(new_pos)
+                    set_position(new_pos)
                     _annotate_last_open(float(pa_mult), adapter, rmult)
 
     update_pf_reports(
