@@ -7,6 +7,8 @@ from __future__ import annotations
 import json
 import os
 import time
+import subprocess
+import sys
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
@@ -435,6 +437,79 @@ def feeds_tab() -> None:
         st.info("Ops log empty.")
 
 
+def dream_tab() -> None:
+    st.header("Dream Mode")
+
+    summary = load_json(REPORTS / "dream_summary.json") or {}
+    snapshot = load_json(REPORTS / "dream_snapshot.json") or {}
+    log_tail = jsonl_tail(REPORTS / "dream_log.jsonl", n=1)
+
+    governance = summary.get("governance") if isinstance(summary.get("governance"), dict) else {}
+    snapshot_governance = snapshot.get("governance") if isinstance(snapshot.get("governance"), dict) else {}
+    pf_trend = summary.get("pf_adj_trend") if isinstance(summary.get("pf_adj_trend"), dict) else {}
+    trades = summary.get("trades") if isinstance(summary.get("trades"), dict) else {}
+
+    sci = governance.get("sci")
+    slope10 = pf_trend.get("slope_10")
+    proposal = summary.get("proposal_kind") or snapshot.get("proposal_kind")
+
+    col_sci, col_slope, col_prop = st.columns(3)
+    col_sci.metric("SCI", f"{float(sci):.3f}" if isinstance(sci, (int, float)) else "N/A")
+    col_slope.metric("Slope 10", f"{float(slope10):.4f}" if isinstance(slope10, (int, float)) else "N/A")
+    col_prop.metric("Proposal", proposal or "N/A")
+
+    ts = summary.get("ts") or snapshot.get("ts") or "N/A"
+    rec = governance.get("rec") or snapshot_governance.get("rec")
+    sci_display = f"{float(sci):.3f}" if isinstance(sci, (int, float)) else "N/A"
+    st.write(f"Last run: {ts} • Rec: {rec or 'N/A'} • SCI: {sci_display}")
+
+    if trades:
+        st.subheader("Trades Snapshot")
+        st.table(pd.DataFrame([trades]))
+
+    gpt_text = summary.get("gpt_text")
+    if not gpt_text and log_tail:
+        tail_entry = log_tail[-1]
+        tail_text = tail_entry.get("gpt_text") or tail_entry.get("summary")
+        if isinstance(tail_text, str):
+            gpt_text = tail_text
+    if isinstance(gpt_text, str) and gpt_text.strip():
+        truncated, clipped = truncate_text(gpt_text, limit=600)
+        st.subheader("Dream Commentary")
+        st.write(truncated)
+        if clipped:
+            with st.expander("Full Dream Commentary"):
+                st.write(gpt_text)
+
+    with st.expander("Dream Summary JSON"):
+        st.json(summary or {"note": "No summary available."})
+
+    if "dream_output" in st.session_state:
+        with st.expander("Dream Output"):
+            st.code(st.session_state.pop("dream_output") or "No output captured.")
+
+    if st.button("Run Dream Now"):
+        output = ""
+        with st.spinner("Running dream diagnostics..."):
+            try:
+                proc = subprocess.run(
+                    [sys.executable, "-m", "engine_alpha.reflect.diagnostic_dream"],
+                    capture_output=True,
+                    text=True,
+                    timeout=120,
+                )
+                combined = "\n".join(
+                    part for part in [proc.stdout.strip(), proc.stderr.strip()] if part
+                ).strip()
+                output = combined or "No output captured."
+            except subprocess.TimeoutExpired:
+                output = "Dream run timed out after 120 seconds."
+            except Exception as exc:  # pragma: no cover - defensive
+                output = f"Dream run failed: {exc}"
+        st.session_state["dream_output"] = output
+        st.rerun()
+
+
 # ---------------------------------------------------------------------------
 # Main entrypoint
 # ---------------------------------------------------------------------------
@@ -458,7 +533,7 @@ def main() -> None:
     st.title("Alpha Chloe Dashboard")
     st.caption("Read-only metrics with health analytics")
 
-    tabs = st.tabs(["Overview", "Portfolio", "Sandbox", "Backtest", "Intelligence", "Feeds/Health"])
+    tabs = st.tabs(["Overview", "Portfolio", "Sandbox", "Backtest", "Intelligence", "Dream", "Feeds/Health"])
     with tabs[0]:
         overview_tab()
     with tabs[1]:
@@ -470,6 +545,8 @@ def main() -> None:
     with tabs[4]:
         intelligence_tab()
     with tabs[5]:
+        dream_tab()
+    with tabs[6]:
         feeds_tab()
 
     if "_last_refresh" not in st.session_state:

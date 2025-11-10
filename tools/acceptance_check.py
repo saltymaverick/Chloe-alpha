@@ -178,14 +178,27 @@ def _section_portfolio() -> Dict[str, Any]:
 
 
 def _section_dream() -> Dict[str, Any]:
-    log_tail = _read_jsonl_tail(REPORTS / "dream_log.jsonl", lines=1)
-    proposals = _read_json(REPORTS / "dream_proposals.json")
-    if not log_tail:
-        return {"ok": False, "details": {"error": "no_dream_entries"}}
-    ts = log_tail[0].get("ts")
-    fresh = _within_hours(ts, DREAM_MAX_AGE)
-    ok = bool(fresh and proposals)
-    return {"ok": ok, "details": {"ts": ts, "fresh": fresh, "proposal_present": bool(proposals)}}
+    summary = _read_json(REPORTS / "dream_summary.json")
+    if not summary:
+        return {
+            "ok": False,
+            "optional": True,
+            "details": {"reason": "missing_summary"},
+        }
+
+    ts = summary.get("ts")
+    fresh = _within_hours(ts, DREAM_MAX_AGE) if ts else False
+    governance = summary.get("governance", {}) if isinstance(summary.get("governance"), dict) else {}
+    pf_trend = summary.get("pf_adj_trend", {}) if isinstance(summary.get("pf_adj_trend"), dict) else {}
+
+    details: Dict[str, Any] = {
+        "ts": ts,
+        "fresh": fresh,
+        "rec": governance.get("rec"),
+        "sci": governance.get("sci"),
+        "slope_10": pf_trend.get("slope_10"),
+    }
+    return {"ok": fresh, "optional": True, "details": details}
 
 
 def _section_mirror() -> Dict[str, Any]:
