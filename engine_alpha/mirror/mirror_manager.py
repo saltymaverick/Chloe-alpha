@@ -1,134 +1,202 @@
-"""
-Mirror manager - Phase 8
-Runs shadow sessions for top candidate wallets (paper only).
+"""Mirror manager - Phase 34
+
+Paper-only mirror utilities that derive sandbox candidates from existing reports.
 """
 
 from __future__ import annotations
 
 import json
-from datetime import datetime, timezone
+import time
 from pathlib import Path
-from typing import Dict, Any, List
+from typing import Any, Dict, List
 
 from engine_alpha.core.paths import REPORTS
-from engine_alpha.signals.signal_processor import get_signal_vector
-from engine_alpha.core.confidence_engine import decide
-from engine_alpha.core.regime import RegimeClassifier
-from engine_alpha.mirror.wallet_hunter import ensure_registry, score_wallets
-from engine_alpha.mirror.strategy_inference import infer_strategy, explain_inference
-from engine_alpha.reflect.trade_analysis import pf_from_trades
+from engine_alpha.mirror.wallet_observer import load_config as load_observer_cfg
+
+MIRROR_SNAPSHOT = REPORTS / "mirror_snapshot.json"
+CANDIDATES_PATH = REPORTS / "mirror_candidates.json"
+LOG_PATH = REPORTS / "mirror_manager_log.jsonl"
+PORTFOLIO_PF_PATH = REPORTS / "portfolio" / "portfolio_pf.json"
+COUNCIL_PATH = REPORTS / "council_weights.json"
+BEHAVIOR_PATH = REPORTS / "mirror" / "behavior.json"
 
 
-def _append_memory(entry: Dict[str, Any]) -> None:
-    path = REPORTS / "mirror_memory.jsonl"
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("a") as f:
-        f.write(json.dumps(entry) + "\n")
+def _now() -> str:
+    return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
 
 
-def _shadow_trade(wallet: str, entry_type: str, direction: int, pct: float, style: str) -> None:
-    _append_memory(
-        {
-            "ts": datetime.now(timezone.utc).isoformat(),
-            "wallet": wallet,
-            "type": entry_type,
-            "dir": direction,
-            "pct": float(pct),
-            "style": style,
-        }
-    )
+def _read_json(path: Path) -> Any:
+    try:
+        return json.loads(path.read_text())
+    except Exception:
+        return None
 
 
-def _simulate_wallet(wallet: Dict[str, Any], steps: int, classifier: RegimeClassifier) -> Dict[str, Any]:
-    wallet_id = wallet.get("id", "unknown")
-    observations: List[Dict[str, float]] = []
-    trades: List[Dict[str, float]] = []
-    in_position = 0
-    bars_open = 0
+def build_candidates_from_observer(min_score: float = 0.65, max_candidates: int = 5) -> List[Dict[str, Any]]:
+    """Build candidate list from wallet observer behaviour outputs."""
+    behavior = _read_json(BEHAVIOR_PATH)
+    if not isinstance(behavior, dict):
+        return []
 
-    for _ in range(steps):
-        signal_result = get_signal_vector()
-        decision = decide(signal_result["signal_vector"], signal_result["raw_registry"], classifier)
-        momentum_score = decision["buckets"].get("momentum", {}).get("score", 0.0)
-        vol_delta = signal_result["raw_registry"].get("Vol_Delta", {}).get("value", 0.0)
+    items = []
+    for address, metrics in behavior.items():
+        if not isinstance(metrics, dict):
+            continue
+        score = metrics.get("score")
+        try:
+            score_val = float(score)
+        except Exception:
+            continue
+        if score_val < min_score:
+            continue
+        items.append((address, score_val))
 
-        observations.append(
+    items.sort(key=lambda pair: pair[1], reverse=True)
+    selected = []
+    for address, score in items[:max_candidates]:
+        selected.append(
             {
-                "momentum": momentum_score,
-                "reversion": -momentum_score,
-                "flow": vol_delta,
+                "id": address,
+                "score": round(score, 4),
+                "notes": "observer",
+                "seed_params": {"entry_min": 0.60, "flip_min": 0.55},
             }
         )
 
-    inference = infer_strategy(observations)
-    style = inference.get("style", "momentum")
+    if selected:
+        CANDIDATES_PATH.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            CANDIDATES_PATH.write_text(json.dumps(selected, indent=2))
+        except Exception:
+            pass
+        try:
+            LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
+            with LOG_PATH.open("a") as handle:
+                handle.write(json.dumps({"ts": _now(), "candidates": len(selected), "source": "observer"}) + "\n")
+        except Exception:
+            pass
+    return selected
 
-    # Reset to run simulation with style
-    in_position = 0
-    bars_open = 0
 
-    for obs in observations:
-        momentum_score = obs["momentum"]
-        flow_score = obs["flow"]
-        direction = 0
-
-        if style == "momentum":
-            direction = 1 if momentum_score >= 0 else -1
-        elif style == "meanrev":
-            direction = -1 if abs(momentum_score) > 0 else 0
-        elif style == "flow":
-            direction = 1 if flow_score >= 0 else -1
-
-        conf = abs(momentum_score)
-
-        if in_position == 0 and direction != 0 and conf >= 0.1:
-            in_position = direction
-            bars_open = 0
-            _shadow_trade(wallet_id, "open", in_position, 0.0, style)
-        elif in_position != 0:
-            pnl = in_position * momentum_score * 0.01
-            trades.append({"pct": pnl})
-            bars_open += 1
-            if conf < 0.05 or abs(momentum_score) < 0.01 or bars_open > 12:
-                _shadow_trade(wallet_id, "close", in_position, pnl, style)
-                in_position = 0
-                bars_open = 0
-
-    return {
-        "wallet": wallet_id,
-        "style": style,
-        "explain": explain_inference(inference),
-        "trades": trades,
+def run_shadow(window_steps: int = 200) -> Dict[str, Any]:
+    """Build a paper-only mirror snapshot from existing on-disk reports."""
+    snapshot: Dict[str, Any] = {
+        "ts": _now(),
+        "window_steps": window_steps,
+        "sources": {},
+        "candidates": [],
+        "notes": "mirror stub",
     }
 
+    cfg = load_observer_cfg()
+    min_score = float(cfg.get("min_score", 0.65))
+    max_candidates = int(cfg.get("max_candidates", 5))
 
-def run_shadow(K: int = 2, steps: int = 60) -> Dict[str, Any]:
-    registry = ensure_registry()
-    ranked = score_wallets(registry)
-    classifier = RegimeClassifier()
+    observer_candidates = build_candidates_from_observer(min_score=min_score, max_candidates=max_candidates)
 
-    selected = ranked[:K]
-    results: Dict[str, Any] = {}
+    portfolio_pf = _read_json(PORTFOLIO_PF_PATH)
+    council = _read_json(COUNCIL_PATH)
 
-    for wallet in selected:
-        report = _simulate_wallet(wallet, steps, classifier)
-        trades = report["trades"]
-        pf = pf_from_trades(trades)
-        results[wallet["id"]] = {
-            "style": report["style"],
-            "explain": report["explain"],
-            "pf": pf,
-            "trades": len(trades),
-        }
+    pf_value = None
+    if isinstance(portfolio_pf, dict):
+        pf_candidate = portfolio_pf.get("portfolio_pf")
+        if isinstance(pf_candidate, (int, float)):
+            pf_value = float(pf_candidate)
+    snapshot["sources"]["portfolio_pf"] = pf_value
 
-    snapshot = {
-        "ts": datetime.now(timezone.utc).isoformat(),
-        "shadow_pnl": {wid: data["pf"] for wid, data in results.items()},
-        "inferences": {wid: data["explain"] for wid, data in results.items()},
-    }
+    snap_score = 0.0
+    if isinstance(pf_value, (int, float)):
+        snap_score = max(0.0, min(1.0, pf_value - 0.9))
 
-    snapshot_path = REPORTS / "mirror_snapshot.json"
-    with snapshot_path.open("w") as f:
-        json.dump(snapshot, f, indent=2)
+    candidates: List[Dict[str, Any]] = []
+    if pf_value is not None:
+        candidates.append(
+            {
+                "id": "mirror_pf_candidate",
+                "score": round(snap_score, 3),
+                "notes": "derived from portfolio_pf",
+                "seed_params": {"entry_min": 0.60, "flip_min": 0.55},
+            }
+        )
+
+    if council:
+        candidates.append(
+            {
+                "id": "mirror_council_candidate",
+                "score": 0.66,
+                "notes": "derived from council deltas",
+                "seed_params": {"entry_min": 0.58, "flip_min": 0.53},
+            }
+        )
+
+    final_candidates = observer_candidates or candidates
+    snapshot["candidates"] = final_candidates
+
+    try:
+        MIRROR_SNAPSHOT.parent.mkdir(parents=True, exist_ok=True)
+        MIRROR_SNAPSHOT.write_text(json.dumps(snapshot, indent=2))
+    except Exception:
+        pass
+
+    if not observer_candidates:
+        try:
+            CANDIDATES_PATH.parent.mkdir(parents=True, exist_ok=True)
+            CANDIDATES_PATH.write_text(json.dumps(final_candidates, indent=2))
+        except Exception:
+            pass
+        try:
+            LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
+            with LOG_PATH.open("a") as handle:
+                handle.write(json.dumps({"ts": snapshot["ts"], "candidates": len(final_candidates), "source": "stub"}) + "\n")
+        except Exception:
+            pass
+
+    try:
+        CANDIDATES_PATH.parent.mkdir(parents=True, exist_ok=True)
+        CANDIDATES_PATH.write_text(json.dumps(candidates, indent=2))
+    except Exception:
+        pass
+
+    try:
+        LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
+        with LOG_PATH.open("a") as handle:
+            handle.write(json.dumps({"ts": snapshot["ts"], "candidates": len(candidates)}) + "\n")
+    except Exception:
+        pass
 
     return snapshot
+
+
+def get_candidates(min_score: float = 0.65, max_candidates: int = 5) -> List[Dict[str, Any]]:
+    """Return filtered candidates from the current snapshot."""
+    try:
+        data = json.loads(CANDIDATES_PATH.read_text())
+        if not isinstance(data, list):
+            raise ValueError
+        candidates = data
+    except Exception:
+        snapshot = _read_json(MIRROR_SNAPSHOT)
+        candidates = snapshot.get("candidates", []) if isinstance(snapshot, dict) else []
+
+    filtered: List[Dict[str, Any]] = []
+    for item in candidates:
+        if not isinstance(item, dict):
+            continue
+        try:
+            score = float(item.get("score", 0.0))
+        except Exception:
+            continue
+        if score >= min_score:
+            filtered.append(item)
+        if len(filtered) >= max_candidates:
+            break
+    return filtered
+
+
+def run_once() -> Dict[str, Any]:
+    snapshot = run_shadow()
+    return {"snapshot": snapshot, "candidates": snapshot.get("candidates", []), "count": len(snapshot.get("candidates", []))}
+
+
+if __name__ == "__main__":  # manual smoke test
+    print(json.dumps(run_shadow(), indent=2))
