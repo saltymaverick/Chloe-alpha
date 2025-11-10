@@ -183,6 +183,19 @@ def _compute_slope(data: List[float], window: int) -> float:
     return (end - start) / denom
 
 
+def _compute_pct_slope(data: List[float], window: int) -> Optional[float]:
+    if not data:
+        return None
+    n = min(window, len(data))
+    if n < 2:
+        return None
+    start = data[-n]
+    end = data[-1]
+    if start in (0, None):
+        return None
+    return ((end - start) / start) / (n - 1)
+
+
 def _load_council_delta() -> Dict[str, Dict[str, float]]:
     weights_path = REPORTS / "council_weights.json"
     data = _read_json(weights_path) or {}
@@ -313,10 +326,13 @@ def run_dream(window_steps: int = 200) -> Dict[str, Any]:
     proposal_kind = "update_gates" if delta > improvement_threshold else "hold"
 
     equity_values = _load_equity_tail(limit=200)
-    pf_adj_trend = {
-        "slope_50": _compute_slope(equity_values, 50),
-        "slope_10": _compute_slope(equity_values, 10),
-    }
+    pf_adj_trend = {}
+    slope_50 = _compute_pct_slope(equity_values, 50)
+    slope_10 = _compute_pct_slope(equity_values, 10)
+    if slope_50 is not None:
+        pf_adj_trend["slope_50_pct"] = slope_50
+    if slope_10 is not None:
+        pf_adj_trend["slope_10_pct"] = slope_10
 
     council_summary = _load_council_delta()
     governance_summary = _load_governance_summary()
