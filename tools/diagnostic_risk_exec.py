@@ -58,6 +58,15 @@ def main() -> int:
     print("Current live equity snapshot:")
     print(json.dumps(equity_live_state or {"equity": position_sizing.read_equity_live()}, indent=2))
     print(f"risk_per_trade_bps: {cfg.get('risk_per_trade_bps')}")
+    pf_live_path = REPORTS / "pf_local_live.json"
+    if pf_live_path.exists():
+        try:
+            pf_live = json.loads(pf_live_path.read_text())
+        except Exception:
+            pf_live = None
+        if isinstance(pf_live, dict):
+            print("pf_local_live.json:")
+            print(json.dumps(pf_live, indent=2))
     return 0
 
 

@@ -22,6 +22,7 @@ from engine_alpha.loop.position_manager import (
     clear_position,
 )
 from engine_alpha.reflect.trade_analysis import update_pf_reports
+from engine_alpha.reflect import pf_weighted
 from engine_alpha.core import position_sizing
 
 TRADES_PATH = REPORTS / "trades.jsonl"
@@ -97,43 +98,6 @@ def _append_equity_live_record(ts: str, equity: float, adj_pct: float, risk_r: f
     }
     with EQUITY_CURVE_LIVE_PATH.open("a") as handle:
         handle.write(json.dumps(payload) + "\n")
-
-
-def _update_pf_live() -> None:
-    if not EQUITY_CURVE_LIVE_PATH.exists():
-        return
-    pos_sum = 0.0
-    neg_sum = 0.0
-    count = 0
-    try:
-        for raw in EQUITY_CURVE_LIVE_PATH.read_text().splitlines():
-            raw = raw.strip()
-            if not raw:
-                continue
-            try:
-                entry = json.loads(raw)
-            except Exception:
-                continue
-            adj = entry.get("adj_pct")
-            if not isinstance(adj, (int, float)):
-                continue
-            adj_val = float(adj)
-            if adj_val > 0:
-                pos_sum += adj_val
-            elif adj_val < 0:
-                neg_sum += abs(adj_val)
-            count += 1
-    except Exception:
-        return
-    if count == 0:
-        return
-    if neg_sum > 0:
-        pf_val = pos_sum / neg_sum
-    elif pos_sum > 0:
-        pf_val = float("inf")
-    else:
-        pf_val = 0.0
-    PF_LIVE_PATH.write_text(json.dumps({"pf": pf_val, "count": count}, indent=2))
 
 
 def _load_policy() -> Dict[str, bool]:
@@ -372,8 +336,11 @@ def run_step_live(symbol: str = "ETHUSDT",
             equity_before = position_sizing.read_equity_live()
             if risk_r <= 0:
                 risk_r = position_sizing.compute_R(equity_before, sizing_cfg)
+            cap_adj = float(sizing_cfg.get("cap_adj_pct", 0.05))
             slippage_cap = float(sizing_cfg.get("slippage_bps_cap", 50)) / 10000.0
             adj_pct = float(close_pct)
+            if cap_adj > 0:
+                adj_pct = max(-cap_adj, min(cap_adj, adj_pct))
             if slippage_cap > 0:
                 adj_pct = max(-slippage_cap, min(slippage_cap, adj_pct))
             close_now(pct=close_pct)
@@ -381,7 +348,10 @@ def run_step_live(symbol: str = "ETHUSDT",
             if allow_live_writes:
                 position_sizing.write_equity_live(equity_live_value)
                 _append_equity_live_record(bar_ts or _now(), equity_live_value, adj_pct, risk_r)
-                _update_pf_live()
+                try:
+                    pf_weighted.update()
+                except Exception:
+                    pass
             clear_live_position()
             clear_position()
             if reopen_after_flip:

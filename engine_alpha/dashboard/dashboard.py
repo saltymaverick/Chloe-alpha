@@ -206,28 +206,36 @@ def render_heartbeat_and_activity() -> None:
 def overview_tab() -> None:
     st.header("Overview")
 
-    pf_local = load_json(REPORTS / "pf_local.json")
     pf_local_adj = load_json(REPORTS / "pf_local_adj.json")
     pa_status = load_json(REPORTS / "pa_status.json")
 
     modes = ["Risk-weighted", "Risk-normalized", "Full"]
-    live_exists = (REPORTS / "equity_curve_live.jsonl").exists()
+    live_curve_path = REPORTS / "equity_curve_live.jsonl"
+    live_exists = live_curve_path.exists()
     norm_exists = (REPORTS / "equity_curve_norm.jsonl").exists()
     default_mode = "Risk-weighted" if live_exists else ("Risk-normalized" if norm_exists else "Full")
     mode = st.selectbox("Equity Mode", modes, index=modes.index(default_mode))
     if mode == "Risk-weighted":
         equity_path = REPORTS / "equity_curve_live.jsonl"
-        pf_path = REPORTS / "pf_local_live.json"
     elif mode == "Risk-normalized":
         equity_path = REPORTS / "equity_curve_norm.jsonl"
-        pf_path = REPORTS / "pf_local_norm.json"
     else:
         equity_path = REPORTS / "equity_curve.jsonl"
-        pf_path = REPORTS / "pf_local.json"
 
     equity_df = load_equity_df(equity_path)
-    pf_mode = load_json(pf_path)
-    pf_value = pf_mode.get("pf") if isinstance(pf_mode, dict) else None
+    pf_live = load_json(REPORTS / "pf_local_live.json")
+    live_pf_value = pf_live.get("pf") if isinstance(pf_live, dict) else None
+    pf_full = load_json(REPORTS / "pf_local.json")
+    full_pf_value = pf_full.get("pf") if isinstance(pf_full, dict) else None
+    pf_label = "PF"
+    pf_value = None
+    if isinstance(live_pf_value, (int, float)):
+        pf_label = "PF (Risk-weighted)"
+        pf_value = live_pf_value
+    elif isinstance(full_pf_value, (int, float)):
+        pf_label = "PF (Full)"
+        pf_value = full_pf_value
+
     last_equity_value = equity_df["equity"].iloc[-1] if equity_df is not None and not equity_df.empty else None
 
     if isinstance(pf_value, (int, float)):
@@ -236,7 +244,7 @@ def overview_tab() -> None:
         pf_display = "N/A"
 
     col_pf, col_adj, col_pa, col_equity = st.columns(4)
-    col_pf.metric(f"PF ({mode})", pf_display)
+    col_pf.metric(pf_label, pf_display)
     col_adj.metric("PF Local Adj", pf_local_adj.get("pf", "N/A") if pf_local_adj else "N/A")
     col_pa.metric("PA Armed", str(pa_status.get("armed", "N/A")) if pa_status else "N/A")
     col_equity.metric(
