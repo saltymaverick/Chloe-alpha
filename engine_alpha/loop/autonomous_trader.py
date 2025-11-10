@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 import json
+import random
 import time
-from pathlib import Path
-from typing import Dict
+from typing import Dict, Any, List
 
 import yaml
 
@@ -30,6 +30,7 @@ ORCH_SNAPSHOT = REPORTS / "orchestrator_snapshot.json"
 EQUITY_LIVE_PATH = REPORTS / "equity_live.json"
 EQUITY_CURVE_LIVE_PATH = REPORTS / "equity_curve_live.jsonl"
 PF_LIVE_PATH = REPORTS / "pf_local_live.json"
+EQUITY_CURVE_NORM_PATH = REPORTS / "equity_curve_norm.jsonl"
 
 
 def _now():
@@ -98,6 +99,85 @@ def _append_equity_live_record(ts: str, equity: float, adj_pct: float, risk_r: f
     }
     with EQUITY_CURVE_LIVE_PATH.open("a") as handle:
         handle.write(json.dumps(payload) + "\n")
+
+
+def _build_normalized_batch_curve(cfg: Dict[str, Any]) -> None:
+    """Recompute normalized simulation equity curve from CLOSE events."""
+    try:
+        lines = TRADES_PATH.read_text().splitlines()
+    except Exception:
+        lines = []
+
+    fraction = float(position_sizing.risk_fraction(cfg))
+    cap_adj = float(cfg.get("cap_adj_pct", 0.05) or 0.0)
+    start_equity = float(cfg.get("start_equity_live", cfg.get("start_equity_norm", 10000.0)))
+    fee_bps = float(cfg.get("fees_bps_default", 0.0))
+    slip_bps = float(cfg.get("slip_bps_default", 0.0))
+    noise_bps = float(cfg.get("batch_noise_bps", 0.0))
+    cost = (fee_bps + slip_bps) / 10000.0
+
+    equity = start_equity
+    entries: List[Dict[str, Any]] = []
+    for raw in lines:
+        raw = raw.strip()
+        if not raw:
+            continue
+        try:
+            trade = json.loads(raw)
+        except Exception:
+            continue
+        event_type = str(trade.get("type") or trade.get("event") or "").lower()
+        if event_type != "close":
+            continue
+        ts = trade.get("ts")
+        if not isinstance(ts, str):
+            ts = _now()
+        try:
+            adj_pct = float(trade.get("pct", 0.0))
+        except Exception:
+            adj_pct = 0.0
+        adj_pct = position_sizing.cap_pct(adj_pct, cap_adj)
+        noise = 0.0
+        if noise_bps > 0:
+            noise = random.uniform(-noise_bps, noise_bps) / 10000.0
+        pct_net = adj_pct + noise - cost
+        r = pct_net * fraction
+        equity *= (1.0 + r)
+        entries.append(
+            {
+                "ts": ts,
+                "equity": float(equity),
+                "adj_pct_net": float(pct_net),
+                "r": float(r),
+                "fraction": fraction,
+            }
+        )
+
+    EQUITY_CURVE_NORM_PATH.parent.mkdir(parents=True, exist_ok=True)
+    with EQUITY_CURVE_NORM_PATH.open("w") as handle:
+        for entry in entries:
+            handle.write(json.dumps(entry) + "\n")
+
+    try:
+        pf_weighted.update(source="norm")
+    except Exception:
+        pass
+
+    # Mirror the same accounting into live curve / PF for dashboard defaults
+    try:
+        EQUITY_CURVE_LIVE_PATH.parent.mkdir(parents=True, exist_ok=True)
+        with EQUITY_CURVE_LIVE_PATH.open("w") as live_handle:
+            for entry in entries:
+                live_payload = {
+                    "ts": entry["ts"],
+                    "equity": entry["equity"],
+                    "adj_pct": entry["adj_pct_net"],
+                    "risk_r": entry["r"],
+                }
+                live_handle.write(json.dumps(live_payload) + "\n")
+        pf_weighted.update(source="live")
+    except Exception:
+        pass
 
 
 def _load_policy() -> Dict[str, bool]:
@@ -378,8 +458,14 @@ def run_step_live(symbol: str = "ETHUSDT",
 
 def run_batch(n: int = 25):
     info = None
+    sizing_cfg = position_sizing.cfg()
     for _ in range(n):
         info = run_step()
+    if bool(sizing_cfg.get("normalize_batch", False)):
+        try:
+            _build_normalized_batch_curve(sizing_cfg)
+        except Exception:
+            pass
     (REPORTS / "loop_health.json").write_text(json.dumps({
         "ts": _now(),
         "last": info
