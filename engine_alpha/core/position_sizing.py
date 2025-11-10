@@ -15,6 +15,7 @@ EQUITY_LIVE_PATH = REPORTS / "equity_live.json"
 
 __all__ = [
     "cfg",
+    "load_cfg",
     "risk_fraction",
     "compute_R",
     "can_open",
@@ -53,6 +54,10 @@ def _load_accounting() -> Dict[str, Any]:
 
 def cfg() -> Dict[str, Any]:
     return _load_accounting()
+
+
+def load_cfg() -> Dict[str, Any]:
+    return cfg()
 
 
 def risk_fraction(conf: Dict[str, Any] | None = None) -> float:

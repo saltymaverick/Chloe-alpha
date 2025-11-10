@@ -26,6 +26,7 @@ from engine_alpha.core import position_sizing
 
 TRADES_PATH = REPORTS / "trades.jsonl"
 ORCH_SNAPSHOT = REPORTS / "orchestrator_snapshot.json"
+EQUITY_LIVE_PATH = REPORTS / "equity_live.json"
 EQUITY_CURVE_LIVE_PATH = REPORTS / "equity_curve_live.jsonl"
 PF_LIVE_PATH = REPORTS / "pf_local_live.json"
 
@@ -293,13 +294,17 @@ def run_step_live(symbol: str = "ETHUSDT",
     allow_live_writes = bool(sizing_cfg.get("write_live_equity", True))
     context_meta = out.get("context", {}) if isinstance(out.get("context", {}), dict) else {}
 
+    equity_live_value = position_sizing.read_equity_live()
+    if allow_live_writes and not EQUITY_LIVE_PATH.exists():
+        position_sizing.write_equity_live(equity_live_value)
+
     def _try_open(direction: int, confidence: float) -> bool:
         if direction == 0:
             return False
         current_pos = get_live_position()
         current_r = float(current_pos.get("risk_r", 0.0)) if isinstance(current_pos, dict) else 0.0
-        equity_live_value = position_sizing.read_equity_live()
-        risk_r = position_sizing.compute_R(equity_live_value, sizing_cfg)
+        equity_live_snapshot = position_sizing.read_equity_live()
+        risk_r = position_sizing.compute_R(equity_live_snapshot, sizing_cfg)
         if risk_r <= 0:
             return False
         gross_after = current_r + risk_r
@@ -364,13 +369,15 @@ def run_step_live(symbol: str = "ETHUSDT",
 
         if close_pct is not None:
             risk_r = float(live_pos.get("risk_r", 0.0))
+            equity_before = position_sizing.read_equity_live()
+            if risk_r <= 0:
+                risk_r = position_sizing.compute_R(equity_before, sizing_cfg)
             slippage_cap = float(sizing_cfg.get("slippage_bps_cap", 50)) / 10000.0
             adj_pct = float(close_pct)
             if slippage_cap > 0:
                 adj_pct = max(-slippage_cap, min(slippage_cap, adj_pct))
             close_now(pct=close_pct)
-            equity_live_value = position_sizing.read_equity_live()
-            equity_live_value = float(equity_live_value + adj_pct * risk_r)
+            equity_live_value = float(equity_before + adj_pct * risk_r)
             if allow_live_writes:
                 position_sizing.write_equity_live(equity_live_value)
                 _append_equity_live_record(bar_ts or _now(), equity_live_value, adj_pct, risk_r)
