@@ -399,6 +399,36 @@ def backtest_tab() -> None:
         st.info("No trades recorded for this run.")
 
 
+def evolution_tab() -> None:
+    st.header("Evolution Pipeline")
+
+    candidates = load_json(REPORTS / "mirror_candidates.json")
+    if isinstance(candidates, list) and candidates:
+        st.subheader("Mirror Candidates")
+        df = pd.DataFrame(
+            [
+                {
+                    "id": item.get("id", "N/A"),
+                    "score": item.get("score"),
+                    "notes": item.get("notes"),
+                    "seed_params": json.dumps(item.get("seed_params", {})),
+                }
+                for item in candidates
+                if isinstance(item, dict)
+            ]
+        )
+        st.dataframe(df, use_container_width=True)
+    else:
+        st.info("No mirror candidates found.")
+
+    proposals_tail = jsonl_tail(REPORTS / "promotion_proposals.jsonl", n=5)
+    if proposals_tail:
+        st.subheader("Promotion Proposals (tail)")
+        st.code("\n".join(json.dumps(entry) for entry in proposals_tail))
+    else:
+        st.info("No promotion proposals recorded.")
+
+
 def intelligence_tab() -> None:
     st.header("Intelligence")
     summary = load_json(REPORTS / "gpt_summary.json")
@@ -547,20 +577,24 @@ def main() -> None:
     st.title("Alpha Chloe Dashboard")
     st.caption("Read-only metrics with health analytics")
 
-    tabs = st.tabs(["Overview", "Portfolio", "Sandbox", "Backtest", "Intelligence", "Dream", "Feeds/Health"])
+    tabs = st.tabs(
+        ["Overview", "Portfolio", "Evolution", "Sandbox", "Backtest", "Intelligence", "Dream", "Feeds/Health"]
+    )
     with tabs[0]:
         overview_tab()
     with tabs[1]:
         portfolio_tab()
     with tabs[2]:
-        sandbox_tab()
+        evolution_tab()
     with tabs[3]:
-        backtest_tab()
+        sandbox_tab()
     with tabs[4]:
-        intelligence_tab()
+        backtest_tab()
     with tabs[5]:
-        dream_tab()
+        intelligence_tab()
     with tabs[6]:
+        dream_tab()
+    with tabs[7]:
         feeds_tab()
 
     if "_last_refresh" not in st.session_state:

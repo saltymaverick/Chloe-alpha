@@ -1,5 +1,5 @@
 {
-  "ts": "2025-11-10T05:37:46.375402+00:00",
+  "ts": "2025-11-10T05:48:51.485617+00:00",
   "PASS": true,
   "sections": {
     "feeds": {
@@ -65,7 +65,7 @@
     "ops": {
       "ok": true,
       "details": {
-        "ts": "2025-11-10T05:37:46.360860+00:00",
+        "ts": "2025-11-10T05:48:51.470825+00:00",
         "pf_ok": true,
         "trades_ok": true,
         "dream_ok": true,
@@ -78,7 +78,7 @@
         "pf_adj_live": 50.21581654428138,
         "pf_adj_local": 50.21581654428138,
         "points": 12,
-        "fresh_hours": 0.53,
+        "fresh_hours": 0.72,
         "curve_ok": true,
         "pf_ok": true,
         "fresh": true
@@ -281,7 +281,7 @@
     "orchestrator": {
       "ok": true,
       "details": {
-        "ts": "2025-11-10T05:35:03.566806+00:00",
+        "ts": "2025-11-10T05:45:03.397224+00:00",
         "inputs": {
           "sci": 0.5053498162942622,
           "rec": "REVIEW",
@@ -372,6 +372,15 @@
         "last_equity": 10040.065050009356,
         "risk_bps": null,
         "points": 12
+      }
+    },
+    "evolution": {
+      "ok": false,
+      "optional": true,
+      "details": {
+        "candidates": 0,
+        "proposals": 0,
+        "last_ts": "2025-11-10T05:48:51.326995+00:00"
       }
     }
   }

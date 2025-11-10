@@ -10,3 +10,5 @@
 {"ts": "2025-11-10T03:00:33.434705+00:00", "level": "warn", "code": "live_loop_stale", "details": {"age_seconds": 3633}}
 {"ts": "2025-11-10T04:00:23.460922+00:00", "level": "warn", "code": "live_loop_stale", "details": {"age_seconds": 3623}}
 {"ts": "2025-11-10T05:00:08.518914+00:00", "level": "warn", "code": "live_loop_stale", "details": {"age_seconds": 3608}}
+{"ts": "2025-11-10T06:00:13.880170+00:00", "level": "warn", "code": "live_loop_stale", "details": {"age_seconds": 3613}}
+{"ts": "2025-11-10T07:00:24.477833+00:00", "level": "warn", "code": "live_loop_stale", "details": {"age_seconds": 3624}}
