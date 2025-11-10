@@ -15,6 +15,7 @@ import yaml
 from engine_alpha.core.paths import CONFIG, REPORTS
 from engine_alpha.data.live_prices import get_live_ohlcv
 from engine_alpha.loop.autonomous_trader import run_step_live
+from engine_alpha.reflect.trade_analysis import update_pf_reports
 
 STATE_PATH = REPORTS / "live_loop_state.json"
 
@@ -97,10 +98,16 @@ def main() -> int:
         return 0
 
     try:
-        result = run_step_live(symbol=symbol, timeframe=timeframe, limit=limit)
+        result = run_step_live(symbol=symbol, timeframe=timeframe, limit=limit, bar_ts=bar_ts)
     except Exception as exc:  # pragma: no cover - defensive
         print(f"LIVE-SOAK: step_failed error={exc}")
         return 0
+
+    update_pf_reports(
+        REPORTS / "trades.jsonl",
+        REPORTS / "pf_local.json",
+        REPORTS / "pf_live.json",
+    )
 
     policy = result.get("policy", {})
     final = result.get("final", {})

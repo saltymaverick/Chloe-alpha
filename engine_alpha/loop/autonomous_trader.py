@@ -1,15 +1,26 @@
 from __future__ import annotations
-import json, time
+
+import json
+import time
 from pathlib import Path
+from typing import Dict
+
+import yaml
+
 from engine_alpha.signals.signal_processor import get_signal_vector, get_signal_vector_live
 from engine_alpha.core.confidence_engine import decide
-from engine_alpha.core.paths import REPORTS
+from engine_alpha.core.paths import REPORTS, CONFIG
 from engine_alpha.core.profit_amplifier import evaluate as pa_evaluate, risk_multiplier as pa_rmult
 from engine_alpha.core.risk_adapter import evaluate as risk_eval
 from engine_alpha.loop.execute_trade import open_if_allowed, close_now
-from engine_alpha.loop.position_manager import get_open_position, set_position
+from engine_alpha.loop.position_manager import (
+    get_open_position,
+    set_position,
+    get_live_position,
+    set_live_position,
+    clear_live_position,
+)
 from engine_alpha.reflect.trade_analysis import update_pf_reports
-from typing import Dict
 
 TRADES_PATH = REPORTS / "trades.jsonl"
 ORCH_SNAPSHOT = REPORTS / "orchestrator_snapshot.json"
@@ -61,6 +72,26 @@ def _load_policy() -> Dict[str, bool]:
         return {"allow_opens": True, "allow_pa": True}
 
 
+def _load_decay_bars() -> int:
+    gates_path = CONFIG / "gates.yaml"
+    try:
+        with gates_path.open("r") as fh:
+            data = yaml.safe_load(fh) or {}
+    except Exception:
+        data = {}
+    exit_cfg = data.get("EXIT") or data.get("exit")
+    value = None
+    if isinstance(exit_cfg, dict):
+        value = exit_cfg.get("DECAY_BARS") or exit_cfg.get("decay_bars")
+    try:
+        return max(1, int(value))
+    except (TypeError, ValueError):
+        return 8
+
+
+DECAY_BARS = _load_decay_bars()
+
+
 def run_step(entry_min_conf: float = 0.58, exit_min_conf: float = 0.42, reverse_min_conf: float = 0.55):
     policy = _load_policy()
 
@@ -95,7 +126,7 @@ def run_step(entry_min_conf: float = 0.58, exit_min_conf: float = 0.42, reverse_
         set_position(pos)
         flip = (final["dir"] != 0 and final["dir"] != pos["dir"] and final["conf"] >= reverse_min_conf)
         drop = (final["conf"] < exit_min_conf)
-        decay = (pos["bars_open"] > 8)
+        decay = (pos["bars_open"] >= DECAY_BARS)
         if drop or flip or decay:
             pnl = final["conf"] if final["dir"] == pos["dir"] else -final["conf"]
             close_now(pct=pnl)
@@ -123,7 +154,8 @@ def run_step_live(symbol: str = "ETHUSDT",
                   limit: int = 200,
                   entry_min_conf: float = 0.58,
                   exit_min_conf: float = 0.42,
-                  reverse_min_conf: float = 0.55):
+                  reverse_min_conf: float = 0.55,
+                  bar_ts: str | None = None):
     policy = _load_policy()
 
     out = get_signal_vector_live(symbol=symbol, timeframe=timeframe, limit=limit)
@@ -142,30 +174,54 @@ def run_step_live(symbol: str = "ETHUSDT",
     adapter["band"] = adapter_band
     rmult = max(0.5, min(1.25, float(pa_mult) * adapter_mult))
 
-    opened = False
-    if policy.get("allow_opens", True):
-        opened = open_if_allowed(final_dir=final["dir"],
-                                 final_conf=final["conf"],
-                                 entry_min_conf=entry_min_conf,
-                                 risk_mult=rmult)
-        if opened:
-            _annotate_last_open(float(pa_mult), adapter, rmult)
+    live_pos = get_live_position()
 
-    pos = get_open_position()
-    if pos and pos.get("dir"):
-        pos["bars_open"] = pos.get("bars_open", 0) + 1
-        set_position(pos)
-        flip = (final["dir"] != 0 and final["dir"] != pos["dir"] and final["conf"] >= reverse_min_conf)
+    if policy.get("allow_opens", True):
+        if not (live_pos and live_pos.get("dir") == final["dir"]):
+            opened = open_if_allowed(
+                final_dir=final["dir"],
+                final_conf=final["conf"],
+                entry_min_conf=entry_min_conf,
+                risk_mult=rmult,
+            )
+            if opened:
+                set_live_position({
+                    "dir": final["dir"],
+                    "bars_open": 0,
+                    "entry_px": 1.0,
+                    "last_ts": bar_ts or _now(),
+                })
+                _annotate_last_open(float(pa_mult), adapter, rmult)
+
+    live_pos = get_live_position()
+    if live_pos and live_pos.get("dir"):
+        live_pos["bars_open"] = live_pos.get("bars_open", 0) + 1
+        live_pos["last_ts"] = bar_ts or _now()
+        set_live_position(live_pos)
+        flip = (
+            final["dir"] != 0
+            and final["dir"] != live_pos["dir"]
+            and final["conf"] >= reverse_min_conf
+        )
         drop = (final["conf"] < exit_min_conf)
-        decay = (pos["bars_open"] > 8)
+        decay = (live_pos["bars_open"] >= DECAY_BARS)
         if drop or flip or decay:
-            pnl = final["conf"] if final["dir"] == pos["dir"] else -final["conf"]
+            pnl = final["conf"] if final["dir"] == live_pos["dir"] else -final["conf"]
             close_now(pct=pnl)
+            clear_live_position()
             if flip and policy.get("allow_opens", True):
-                if open_if_allowed(final_dir=final["dir"],
-                                   final_conf=final["conf"],
-                                   entry_min_conf=entry_min_conf,
-                                   risk_mult=rmult):
+                if open_if_allowed(
+                    final_dir=final["dir"],
+                    final_conf=final["conf"],
+                    entry_min_conf=entry_min_conf,
+                    risk_mult=rmult,
+                ):
+                    set_live_position({
+                        "dir": final["dir"],
+                        "bars_open": 0,
+                        "entry_px": 1.0,
+                        "last_ts": bar_ts or _now(),
+                    })
                     _annotate_last_open(float(pa_mult), adapter, rmult)
 
     update_pf_reports(
@@ -175,7 +231,7 @@ def run_step_live(symbol: str = "ETHUSDT",
     )
 
     return {
-        "ts": _now(),
+        "ts": bar_ts or _now(),
         "regime": regime,
         "final": final,
         "policy": policy,
