@@ -11,6 +11,6 @@ reject_if_spread_bps_gt: 20
 reject_if_latency_ms_gt: 2000
 write_live_equity: true
 normalize_batch: true
-fees_bps_default: 40
-slip_bps_default: 10
+fees_bps_default: 50
+slip_bps_default: 15
 batch_noise_bps: 20
