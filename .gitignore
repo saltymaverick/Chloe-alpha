@@ -1,1 +1,9 @@
 .env
+# runtime data and reports
+reports/
+logs/
+data/ohlcv/
+*.parquet
+*.jsonl
+# editor junk
+.vscode/

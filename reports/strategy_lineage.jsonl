@@ -1,7 +1,0 @@
-{"ts": "2025-11-07T15:41:16.431154+00:00", "parent": "baseline", "child_name": "Echo-058-046-050", "params": {"entry_min": 0.58, "exit_min": 0.46, "flip_min": 0.5}, "pf_cf": 2.1282380530349396, "uplift": 0.256378109040285}
-{"ts": "2025-11-07T15:48:46.633682+00:00", "parent": "baseline", "child_name": "Echo-058-046-050", "params": {"entry_min": 0.58, "exit_min": 0.46, "flip_min": 0.5}, "pf_cf": 2.1282380530349396, "uplift": 0.7608452780294268}
-{"ts": "2025-11-07T15:51:06.871910+00:00", "parent": "baseline", "child_name": "Echo-058-046-050", "params": {"entry_min": 0.58, "exit_min": 0.46, "flip_min": 0.5}, "pf_cf": 2.1282380530349396, "uplift": 0.7608452780294268}
-{"ts": "2025-11-07T20:17:06.730996+00:00", "parent": "baseline", "child_name": "Echo-058-046-050", "params": {"entry_min": 0.58, "exit_min": 0.46, "flip_min": 0.5}, "pf_cf": 2.1282380530349396, "uplift": 1.1906522859761521}
-{"ts": "2025-11-07T20:18:03.932558+00:00", "parent": "baseline", "child_name": "Echo-058-046-050", "params": {"entry_min": 0.58, "exit_min": 0.46, "flip_min": 0.5}, "pf_cf": 2.1282380530349396, "uplift": 1.1906522859761521}
-{"ts": "2025-11-07T20:20:06.333372+00:00", "parent": "baseline", "child_name": "Echo-058-046-050", "params": {"entry_min": 0.58, "exit_min": 0.46, "flip_min": 0.5}, "pf_cf": 2.1282380530349396, "uplift": 1.1906522859761521}
-{"ts": "2025-11-07T20:30:34.796331+00:00", "parent": "baseline", "child_name": "Echo-058-046-050", "params": {"entry_min": 0.58, "exit_min": 0.46, "flip_min": 0.5}, "pf_cf": 2.1282380530349396, "uplift": 1.1906522859761521}

@@ -1,9 +1,0 @@
-{
-  "symbol": "ETHUSDT",
-  "timeframe": "1h",
-  "saved_at": "2025-11-11T21:04:09.936616+00:00",
-  "rows": 200,
-  "last_ts": "2025-11-11T21:00:00+00:00",
-  "host": "https://api.binance.us",
-  "exchange": "binance_us"
-}

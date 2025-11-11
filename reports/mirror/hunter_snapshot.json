@@ -1,8 +1,0 @@
-{
-  "ts": "2025-11-11T03:42:53.204514+00:00",
-  "provider": "alchemy",
-  "lookback_hours": 48,
-  "checked": 200,
-  "eligible": 50,
-  "top_targets": 8
-}
