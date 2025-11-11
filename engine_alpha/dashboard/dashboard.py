@@ -16,8 +16,16 @@ from typing import Any, Dict, List, Optional, Tuple
 import altair as alt
 import pandas as pd
 import streamlit as st
+from streamlit_autorefresh import st_autorefresh
 
 from engine_alpha.core.paths import REPORTS, LOGS, DATA
+
+
+def _has_weighted_pf() -> bool:
+    try:
+        return (REPORTS / "pf_local_live.json").exists() or (REPORTS / "pf_local_norm.json").exists()
+    except Exception:
+        return False
 
 
 # ---------------------------------------------------------------------------
@@ -227,7 +235,7 @@ def overview_tab() -> None:
     live_pf_value = pf_live.get("pf") if isinstance(pf_live, dict) else None
     pf_norm = load_json(REPORTS / "pf_local_norm.json")
     norm_pf_value = pf_norm.get("pf") if isinstance(pf_norm, dict) else None
-    pf_full = load_json(REPORTS / "pf_local.json")
+    pf_full = None if _has_weighted_pf() else load_json(REPORTS / "pf_local.json")
     full_pf_value = pf_full.get("pf") if isinstance(pf_full, dict) else None
     pf_label = "PF"
     pf_value = None
@@ -248,9 +256,14 @@ def overview_tab() -> None:
     else:
         pf_display = "N/A"
 
-    col_pf, col_adj, col_pa, col_equity = st.columns(4)
+    if pf_full is not None:
+        col_pf, col_full, col_pa, col_equity = st.columns(4)
+    else:
+        col_pf, col_pa, col_equity = st.columns(3)
+        col_full = None
     col_pf.metric(pf_label, pf_display)
-    col_adj.metric("PF Local Adj", pf_local_adj.get("pf", "N/A") if pf_local_adj else "N/A")
+    if col_full is not None:
+        col_full.metric("PF (Full – research)", pf_local_adj.get("pf", "N/A") if pf_local_adj else "N/A")
     col_pa.metric("PA Armed", str(pa_status.get("armed", "N/A")) if pa_status else "N/A")
     col_equity.metric(
         f"Last Equity ({mode})",
@@ -566,16 +579,8 @@ def dream_tab() -> None:
 def main() -> None:
     st.set_page_config(page_title="Alpha Chloe Dashboard", layout="wide")
 
-    refresh_choice = st.sidebar.selectbox(
-        "Auto-refresh",
-        ["Off", "5 s", "10 s", "30 s"],
-        index=2,
-    )
-    interval_map = {"Off": 0, "5 s": 5, "10 s": 10, "30 s": 30}
-    interval_sec = interval_map.get(refresh_choice, 0)
-
-    if st.sidebar.button("Refresh now"):
-        st.info("Manual refresh is disabled in this SAFE MODE build.")
+    st_autorefresh(interval=10000, key="auto")
+    st.sidebar.caption("Auto-refresh cadence: ~10 seconds (Phase 35).")
 
     render_heartbeat_and_activity()
 
@@ -602,11 +607,8 @@ def main() -> None:
     with tabs[7]:
         feeds_tab()
 
-    if "_last_refresh" not in st.session_state:
-        st.session_state["_last_refresh"] = time.time()
-
-    if interval_sec:
-        st.caption("Auto-refresh is disabled in this SAFE MODE build.")
+    st.session_state["_last_refresh"] = time.time()
+    st.caption("Auto-refresh active: dashboard updates every ~10 seconds.")
 
 
 if __name__ == "__main__" and os.getenv("CHLOE_DASH_HEALTHCHECK") != "1":
