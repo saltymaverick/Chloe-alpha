@@ -16,7 +16,16 @@ from typing import Any, Dict, List, Optional, Tuple
 import altair as alt
 import pandas as pd
 import streamlit as st
-from streamlit_autorefresh import st_autorefresh
+try:
+    from streamlit_autorefresh import st_autorefresh
+except ModuleNotFoundError:  # pragma: no cover - defensive fallback
+    def st_autorefresh(interval: int = 0, key: str | None = None) -> None:
+        if interval and interval > 0:
+            st.markdown(
+                f"<script>setTimeout(function(){{window.location.reload();}}, {int(interval)});</script>",
+                unsafe_allow_html=True,
+            )
+        return None
 
 from engine_alpha.core.paths import REPORTS, LOGS, DATA
 
