@@ -1,7 +1,7 @@
 {
-  "ts": "2025-11-10T04:13:21Z",
+  "ts": "2025-11-11T20:35:47Z",
   "start_equity_norm": 10000.0,
-  "risk_per_trade_bps": 100,
-  "count": 10,
-  "last_equity": 10030.032509991239
+  "risk_per_trade_bps": 25,
+  "count": 5,
+  "last_equity": 9999.854265875376
 }

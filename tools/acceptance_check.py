@@ -456,6 +456,18 @@ def _section_backtest() -> Dict[str, Any]:
     return {"ok": ok, "optional": True, "details": details}
 
 
+def _read_accounting_cfg() -> Dict[str, Any]:
+    path = CONFIG / "accounting.yaml"
+    if not path.exists():
+        return {}
+    try:
+        with path.open("r") as handle:
+            data = yaml.safe_load(handle) or {}
+            return data if isinstance(data, dict) else {}
+    except Exception:
+        return {}
+
+
 def _section_alerts() -> Dict[str, Any]:
     alerts_path = REPORTS / "alerts.jsonl"
     if not alerts_path.exists():
@@ -632,10 +644,40 @@ def _section_auto_apply() -> Dict[str, Any]:
 
 def _section_risk_exec() -> Dict[str, Any]:
     curve_path = REPORTS / "equity_curve_live.jsonl"
-    cfg = _read_json(CONFIG / "accounting.yaml")
-    risk_bps = None
-    if isinstance(cfg, dict):
-        risk_bps = cfg.get("risk_per_trade_bps")
+    cfg = _read_accounting_cfg()
+    risk_bps = cfg.get("risk_per_trade_bps") if isinstance(cfg, dict) else None
+
+    points = 0
+    last_equity = None
+    if curve_path.exists():
+        try:
+            for raw in curve_path.read_text().splitlines():
+                raw = raw.strip()
+                if not raw:
+                    continue
+                try:
+                    entry = json.loads(raw)
+                except Exception:
+                    continue
+                if not isinstance(entry, dict):
+                    continue
+                if entry.get("equity") is not None:
+                    last_equity = entry.get("equity")
+                if entry.get("ts") and entry.get("equity") is not None:
+                    points += 1
+        except Exception:
+            points = 0
+            last_equity = None
+
+    ok = curve_path.exists() and points >= 5
+    details = {"last_equity": last_equity, "risk_bps": risk_bps, "points": points}
+    return {"ok": ok, "optional": True, "details": details}
+
+
+def _section_simulation() -> Dict[str, Any]:
+    curve_path = REPORTS / "equity_curve_norm.jsonl"
+    cfg = _read_accounting_cfg()
+    risk_bps = cfg.get("risk_per_trade_bps") if isinstance(cfg, dict) else None
 
     points = 0
     last_equity = None
@@ -726,6 +768,7 @@ def main() -> int:
         "pipeline": _section_pipeline(),
         "auto_apply": _section_auto_apply(),
         "risk_exec": _section_risk_exec(),
+        "simulation": _section_simulation(),
         "evolution": _section_evolution(),
     }
     blocking_sections = {

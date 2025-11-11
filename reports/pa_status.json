@@ -1,10 +1,10 @@
 {
-  "armed": true,
-  "last_change_ts": "2025-11-10T04:13:21.077026+00:00",
-  "reason": "ARM_GATE_MET",
-  "pf_local": 51.40293526320986,
-  "pf_live": 51.40293526320986,
-  "count": 26,
+  "armed": false,
+  "last_change_ts": "2025-11-11T20:35:47.508068+00:00",
+  "reason": "init",
+  "pf_local": Infinity,
+  "pf_live": Infinity,
+  "count": 10,
   "gates_triplet": [
     0.08,
     0.05,

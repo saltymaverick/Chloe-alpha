@@ -1,8 +1,9 @@
 from __future__ import annotations
 
+import hashlib
 import json
-import random
 import time
+from pathlib import Path
 from typing import Dict, Any, List
 
 import yaml
@@ -29,8 +30,15 @@ TRADES_PATH = REPORTS / "trades.jsonl"
 ORCH_SNAPSHOT = REPORTS / "orchestrator_snapshot.json"
 EQUITY_LIVE_PATH = REPORTS / "equity_live.json"
 EQUITY_CURVE_LIVE_PATH = REPORTS / "equity_curve_live.jsonl"
-PF_LIVE_PATH = REPORTS / "pf_local_live.json"
 EQUITY_CURVE_NORM_PATH = REPORTS / "equity_curve_norm.jsonl"
+
+
+def _count_lines(path: Path) -> int:
+    try:
+        with path.open("r") as handle:
+            return sum(1 for _ in handle)
+    except Exception:
+        return 0
 
 
 def _now():
@@ -89,27 +97,43 @@ def _extract_latency_ms(context: Dict) -> float | None:
     return None
 
 
-def _append_equity_live_record(ts: str, equity: float, adj_pct: float, risk_r: float) -> None:
+def _append_equity_live_record(ts: str, equity: float, adj_pct: float, pct_net: float, r_value: float) -> None:
     EQUITY_CURVE_LIVE_PATH.parent.mkdir(parents=True, exist_ok=True)
     payload = {
         "ts": ts,
         "equity": float(equity),
         "adj_pct": float(adj_pct),
-        "risk_r": float(risk_r),
+        "pct_net": float(pct_net),
+        "r": float(r_value),
     }
     with EQUITY_CURVE_LIVE_PATH.open("a") as handle:
         handle.write(json.dumps(payload) + "\n")
 
 
-def _build_normalized_batch_curve(cfg: Dict[str, Any]) -> None:
-    """Recompute normalized simulation equity curve from CLOSE events."""
+def _noise_from_trade(trade: Dict[str, Any], noise_bps: float) -> float:
+    if noise_bps <= 0:
+        return 0.0
+    seed_parts = [
+        str(trade.get("ts") or trade.get("exit_ts") or ""),
+        str(trade.get("id") or trade.get("trade_id") or ""),
+        str(trade.get("pct") or trade.get("pnl_pct") or ""),
+        str(trade.get("direction") or trade.get("dir") or ""),
+    ]
+    seed = "|".join(seed_parts).encode("utf-8")
+    digest = hashlib.sha256(seed).digest()
+    rand = int.from_bytes(digest[:8], "big") / float(1 << 64)
+    return (rand * 2.0 - 1.0) * (noise_bps / 10000.0)
+
+
+def _build_normalized_batch_curve(cfg: Dict[str, Any], start_index: int = 0) -> None:
+    """Append normalized equity curve entries for new CLOSE events."""
     try:
         lines = TRADES_PATH.read_text().splitlines()
     except Exception:
         lines = []
 
     fraction = float(position_sizing.risk_fraction(cfg))
-    cap_adj = float(cfg.get("cap_adj_pct", 0.05) or 0.0)
+    cap_adj = float(cfg.get("cap_adj_pct", 0.0) or 0.0)
     start_equity = float(cfg.get("start_equity_live", cfg.get("start_equity_norm", 10000.0)))
     fee_bps = float(cfg.get("fees_bps_default", 0.0))
     slip_bps = float(cfg.get("slip_bps_default", 0.0))
@@ -117,8 +141,31 @@ def _build_normalized_batch_curve(cfg: Dict[str, Any]) -> None:
     cost = (fee_bps + slip_bps) / 10000.0
 
     equity = start_equity
+    seen_ts: set[str] = set()
+    if EQUITY_CURVE_NORM_PATH.exists():
+        try:
+            for raw in EQUITY_CURVE_NORM_PATH.read_text().splitlines():
+                raw = raw.strip()
+                if not raw:
+                    continue
+                entry = json.loads(raw)
+                if not isinstance(entry, dict):
+                    continue
+                ts_val = entry.get("ts")
+                if isinstance(ts_val, str):
+                    seen_ts.add(ts_val)
+                eq_val = entry.get("equity")
+                if isinstance(eq_val, (int, float)):
+                    equity = float(eq_val)
+        except Exception:
+            equity = start_equity
+            seen_ts.clear()
+
+    if not seen_ts:
+        start_index = 0
+
     entries: List[Dict[str, Any]] = []
-    for raw in lines:
+    for raw in lines[start_index:]:
         raw = raw.strip()
         if not raw:
             continue
@@ -129,53 +176,44 @@ def _build_normalized_batch_curve(cfg: Dict[str, Any]) -> None:
         event_type = str(trade.get("type") or trade.get("event") or "").lower()
         if event_type != "close":
             continue
-        ts = trade.get("ts")
+        ts = trade.get("ts") or trade.get("exit_ts") or _now()
         if not isinstance(ts, str):
             ts = _now()
+        if ts in seen_ts:
+            continue
         try:
-            adj_pct = float(trade.get("pct", 0.0))
+            adj_pct = float(trade.get("pct", trade.get("pnl_pct", 0.0)))
         except Exception:
             adj_pct = 0.0
         adj_pct = position_sizing.cap_pct(adj_pct, cap_adj)
-        noise = 0.0
-        if noise_bps > 0:
-            noise = random.uniform(-noise_bps, noise_bps) / 10000.0
+        noise = _noise_from_trade(trade, noise_bps)
         pct_net = adj_pct + noise - cost
-        r = pct_net * fraction
-        equity *= (1.0 + r)
-        entries.append(
-            {
-                "ts": ts,
-                "equity": float(equity),
-                "adj_pct_net": float(pct_net),
-                "r": float(r),
-                "fraction": fraction,
-            }
-        )
+        r_val = pct_net * fraction
+        equity = max(0.0, equity * (1.0 + r_val))
+        entry = {
+            "ts": ts,
+            "equity": float(equity),
+            "adj_pct": float(adj_pct),
+            "pct_net": float(pct_net),
+            "r": float(r_val),
+            "fraction": fraction,
+        }
+        entries.append(entry)
+        seen_ts.add(ts)
 
-    EQUITY_CURVE_NORM_PATH.parent.mkdir(parents=True, exist_ok=True)
-    with EQUITY_CURVE_NORM_PATH.open("w") as handle:
-        for entry in entries:
-            handle.write(json.dumps(entry) + "\n")
+    if not entries:
+        return
+
+    try:
+        EQUITY_CURVE_NORM_PATH.parent.mkdir(parents=True, exist_ok=True)
+        with EQUITY_CURVE_NORM_PATH.open("a") as handle:
+            for entry in entries:
+                handle.write(json.dumps(entry) + "\n")
+    except Exception:
+        return
 
     try:
         pf_weighted.update(source="norm")
-    except Exception:
-        pass
-
-    # Mirror the same accounting into live curve / PF for dashboard defaults
-    try:
-        EQUITY_CURVE_LIVE_PATH.parent.mkdir(parents=True, exist_ok=True)
-        with EQUITY_CURVE_LIVE_PATH.open("w") as live_handle:
-            for entry in entries:
-                live_payload = {
-                    "ts": entry["ts"],
-                    "equity": entry["equity"],
-                    "adj_pct": entry["adj_pct_net"],
-                    "risk_r": entry["r"],
-                }
-                live_handle.write(json.dumps(live_payload) + "\n")
-        pf_weighted.update(source="live")
     except Exception:
         pass
 
@@ -412,24 +450,21 @@ def run_step_live(symbol: str = "ETHUSDT",
             reopen_after_flip = flip and policy.get("allow_opens", True)
 
         if close_pct is not None:
-            risk_r = float(live_pos.get("risk_r", 0.0))
             equity_before = position_sizing.read_equity_live()
-            if risk_r <= 0:
-                risk_r = position_sizing.compute_R(equity_before, sizing_cfg)
-            cap_adj = float(sizing_cfg.get("cap_adj_pct", 0.05))
-            slippage_cap = float(sizing_cfg.get("slippage_bps_cap", 50)) / 10000.0
-            adj_pct = float(close_pct)
-            if cap_adj > 0:
-                adj_pct = max(-cap_adj, min(cap_adj, adj_pct))
-            if slippage_cap > 0:
-                adj_pct = max(-slippage_cap, min(slippage_cap, adj_pct))
+            cap_adj = float(sizing_cfg.get("cap_adj_pct", 0.0) or 0.0)
+            adj_pct = position_sizing.cap_pct(float(close_pct), cap_adj)
+            fees_bps = float(sizing_cfg.get("fees_bps_default", 0.0))
+            slip_bps = float(sizing_cfg.get("slip_bps_default", 0.0))
+            pct_net = adj_pct - ((fees_bps + slip_bps) / 10000.0)
+            fraction = float(position_sizing.risk_fraction(sizing_cfg))
+            r_value = pct_net * fraction
+            equity_live_value = max(0.0, float(equity_before) * (1.0 + r_value))
             close_now(pct=close_pct)
-            equity_live_value = float(equity_before + adj_pct * risk_r)
             if allow_live_writes:
                 position_sizing.write_equity_live(equity_live_value)
-                _append_equity_live_record(bar_ts or _now(), equity_live_value, adj_pct, risk_r)
+                _append_equity_live_record(bar_ts or _now(), equity_live_value, adj_pct, pct_net, r_value)
                 try:
-                    pf_weighted.update()
+                    pf_weighted.update(source="live")
                 except Exception:
                     pass
             clear_live_position()
@@ -459,11 +494,15 @@ def run_step_live(symbol: str = "ETHUSDT",
 def run_batch(n: int = 25):
     info = None
     sizing_cfg = position_sizing.cfg()
+    start_line = 0
+    normalize_enabled = bool(sizing_cfg.get("normalize_batch", False))
+    if normalize_enabled:
+        start_line = _count_lines(TRADES_PATH)
     for _ in range(n):
         info = run_step()
-    if bool(sizing_cfg.get("normalize_batch", False)):
+    if normalize_enabled:
         try:
-            _build_normalized_batch_curve(sizing_cfg)
+            _build_normalized_batch_curve(sizing_cfg, start_index=start_line)
         except Exception:
             pass
     (REPORTS / "loop_health.json").write_text(json.dumps({

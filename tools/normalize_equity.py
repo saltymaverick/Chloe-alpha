@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 from pathlib import Path
 from typing import Any, Dict, List
@@ -17,25 +18,28 @@ EQUITY_OUT = REPORTS / "equity_curve_norm.jsonl"
 PF_OUT = REPORTS / "pf_local_norm.json"
 SUMMARY_OUT = REPORTS / "equity_norm_summary.json"
 
-DEFAULTS = {
+DEFAULTS: Dict[str, Any] = {
     "start_equity_norm": 10000.0,
-    "risk_per_trade_bps": 100,
-    "cap_adj_pct": 0.05,
-    "use_abs": False,
+    "start_equity_live": 10000.0,
+    "risk_per_trade_bps": 25,
+    "cap_adj_pct": 0.005,
+    "fees_bps_default": 50,
+    "slip_bps_default": 15,
+    "batch_noise_bps": 20,
 }
 
 
 def _load_config() -> Dict[str, Any]:
+    cfg = DEFAULTS.copy()
     if CONFIG_PATH.exists():
         try:
             data = yaml.safe_load(CONFIG_PATH.read_text()) or {}
-            cfg = DEFAULTS.copy()
-            cfg.update({k: data.get(k, cfg[k]) for k in DEFAULTS})
-            cfg["use_abs"] = bool(cfg.get("use_abs"))
-            return cfg
+            if isinstance(data, dict):
+                for key, value in data.items():
+                    cfg[key] = value
         except Exception:
             pass
-    return DEFAULTS.copy()
+    return cfg
 
 
 def _iter_closes(path: Path) -> List[Dict[str, Any]]:
@@ -59,91 +63,113 @@ def _iter_closes(path: Path) -> List[Dict[str, Any]]:
     return closes
 
 
+def _noise_from_trade(trade: Dict[str, Any], noise_bps: float) -> float:
+    if noise_bps <= 0:
+        return 0.0
+    seed_parts = [
+        str(trade.get("ts") or trade.get("exit_ts") or ""),
+        str(trade.get("id") or trade.get("trade_id") or ""),
+        str(trade.get("pct") or trade.get("pnl_pct") or ""),
+        str(trade.get("direction") or trade.get("dir") or ""),
+    ]
+    seed = "|".join(seed_parts).encode("utf-8")
+    digest = hashlib.sha256(seed).digest()
+    rand = int.from_bytes(digest[:8], "big") / float(1 << 64)
+    return (rand * 2.0 - 1.0) * (noise_bps / 10000.0)
+
+
+def _pf_from_returns(returns: List[float]) -> float:
+    if not returns:
+        return 0.0
+    pos_sum = sum(r for r in returns if r > 0)
+    neg_sum = sum(r for r in returns if r < 0)
+    if neg_sum < 0:
+        return pos_sum / abs(neg_sum)
+    if pos_sum > 0:
+        return float("inf")
+    return 0.0
+
+
 def main() -> int:
     cfg = _load_config()
     closes = _iter_closes(TRADES_PATH)
 
-    equity = float(cfg["start_equity_norm"])
-    risk_factor = float(cfg["risk_per_trade_bps"]) / 10000.0
-    cap_pct = float(cfg["cap_adj_pct"])
-    use_abs = bool(cfg["use_abs"])
+    start_equity = float(
+        cfg.get("start_equity_norm", cfg.get("start_equity_live", DEFAULTS["start_equity_live"]))
+    )
+    risk_fraction = float(cfg.get("risk_per_trade_bps", DEFAULTS["risk_per_trade_bps"])) / 10000.0
+    cap_pct = float(cfg.get("cap_adj_pct", DEFAULTS["cap_adj_pct"]))
+    fee_bps = float(cfg.get("fees_bps_default", DEFAULTS["fees_bps_default"]))
+    slip_bps = float(cfg.get("slip_bps_default", DEFAULTS["slip_bps_default"]))
+    noise_bps = float(cfg.get("batch_noise_bps", DEFAULTS["batch_noise_bps"]))
+    cost = (fee_bps + slip_bps) / 10000.0
 
     EQUITY_OUT.parent.mkdir(parents=True, exist_ok=True)
     PF_OUT.parent.mkdir(parents=True, exist_ok=True)
+    SUMMARY_OUT.parent.mkdir(parents=True, exist_ok=True)
 
     equity_rows: List[str] = []
-    pos_sum = 0.0
-    neg_sum = 0.0
+    returns: List[float] = []
+    equity = float(start_equity)
+    last_ts: str | None = None
 
-    if not closes:
-        EQUITY_OUT.write_text("")
-        PF_OUT.write_text(json.dumps({"pf": 0.0, "window": 0, "count": 0}, indent=2))
-        SUMMARY_OUT.write_text(
-            json.dumps(
-                {
-                    "ts": None,
-                    "start_equity_norm": equity,
-                    "risk_per_trade_bps": cfg["risk_per_trade_bps"],
-                    "count": 0,
-                    "last_equity": equity,
-                },
-                indent=2,
-            )
-        )
-        print("normalize_equity: no close events found; outputs reset.")
-        return 0
-
-    last_ts = None
     for close in closes:
-        last_ts = close.get("ts")
-        adj_raw = close.get("pct")
+        ts = close.get("ts") or close.get("exit_ts") or None
+        if isinstance(ts, str):
+            last_ts = ts
         try:
-            adj = float(adj_raw)
+            adj_pct = float(close.get("pct", close.get("pnl_pct", 0.0)))
         except Exception:
-            adj = 0.0
-        adj = max(-cap_pct, min(cap_pct, adj))
-        if use_abs and close.get("dir") in (1, -1):
-            sign = 1.0 if adj >= 0 else -1.0
-            adj = abs(adj) * sign
-        if adj > 0:
-            pos_sum += adj
-        elif adj < 0:
-            neg_sum += abs(adj)
-        equity *= (1.0 + adj * risk_factor)
+            adj_pct = 0.0
+        adj_pct = max(-cap_pct, min(cap_pct, adj_pct))
+        noise = _noise_from_trade(close, noise_bps)
+        pct_net = adj_pct + noise - cost
+        r_val = pct_net * risk_fraction
+        returns.append(r_val)
+        equity = max(0.0, equity * (1.0 + r_val))
         equity_rows.append(
             json.dumps(
                 {
-                    "ts": close.get("ts"),
+                    "ts": ts or "",
                     "equity": equity,
-                    "adj_pct": adj,
-                    "rf": risk_factor,
+                    "adj_pct": adj_pct,
+                    "pct_net": pct_net,
+                    "r": r_val,
+                    "fraction": risk_fraction,
+                    "noise": noise,
                 }
             )
         )
 
-    EQUITY_OUT.write_text("\n".join(equity_rows) + "\n")
+    equity_text = "\n".join(equity_rows) + ("\n" if equity_rows else "")
+    try:
+        EQUITY_OUT.write_text(equity_text)
+    except Exception as exc:
+        print(f"normalize_equity: failed to write equity curve ({exc})")
 
-    pf = pos_sum / neg_sum if neg_sum > 0 else (pos_sum if pos_sum > 0 else 0.0)
-    PF_OUT.write_text(
-        json.dumps({"pf": pf, "window": len(closes), "count": len(closes)}, indent=2)
-    )
+    pf_payload = {"pf": _pf_from_returns(returns), "count": len(returns), "source": "norm"}
+    try:
+        PF_OUT.write_text(json.dumps(pf_payload, indent=2))
+    except Exception as exc:
+        print(f"normalize_equity: failed to write pf_local_norm.json ({exc})")
 
-    SUMMARY_OUT.write_text(
-        json.dumps(
-            {
-                "ts": last_ts,
-                "start_equity_norm": cfg["start_equity_norm"],
-                "risk_per_trade_bps": cfg["risk_per_trade_bps"],
-                "count": len(closes),
-                "last_equity": equity,
-            },
-            indent=2,
-        )
-    )
+    summary_payload = {
+        "ts": last_ts,
+        "start_equity_norm": start_equity,
+        "risk_per_trade_bps": cfg.get("risk_per_trade_bps", DEFAULTS["risk_per_trade_bps"]),
+        "count": len(returns),
+        "last_equity": equity,
+    }
+    try:
+        SUMMARY_OUT.write_text(json.dumps(summary_payload, indent=2))
+    except Exception as exc:
+        print(f"normalize_equity: failed to write equity_norm_summary.json ({exc})")
 
     print(
-        "normalize_equity: processed {count} closes -> last_equity={equity:.2f}".format(
-            count=len(closes), equity=equity
+        "normalize_equity: closes={count} | last_equity={equity:.2f} | pf={pf}".format(
+            count=len(returns),
+            equity=equity,
+            pf=("∞" if pf_payload["pf"] == float("inf") else f"{pf_payload['pf']:.4f}"),
         )
     )
     return 0

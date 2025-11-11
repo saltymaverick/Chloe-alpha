@@ -1,6 +1,6 @@
 {
-  "ts": "2025-11-10T05:48:51.485617+00:00",
-  "PASS": true,
+  "ts": "2025-11-11T21:04:21.999537+00:00",
+  "PASS": false,
   "sections": {
     "feeds": {
       "ok": true,
@@ -26,10 +26,10 @@
     "pf_pa": {
       "ok": true,
       "details": {
-        "pf_local": 51.40293526320986,
-        "pf_live": 51.40293526320986,
-        "armed": true,
-        "count": 26,
+        "pf_local": Infinity,
+        "pf_live": Infinity,
+        "armed": false,
+        "count": 10,
         "gate_consistent": true
       }
     },
@@ -49,23 +49,23 @@
       "ok": true,
       "optional": true,
       "details": {
-        "ts": "2025-11-10T04:40:09.925455+00:00",
+        "ts": "2025-11-11T03:10:39.132495+00:00",
         "fresh": true,
         "rec": "REVIEW",
-        "sci": 0.4515196511568431,
+        "sci": 0.5053498162942622,
         "slope_10": null
       }
     },
     "mirror": {
       "ok": true,
       "details": {
-        "ts": "2025-11-10T05:00:09.404988+00:00"
+        "ts": "2025-11-11T21:00:17Z"
       }
     },
     "ops": {
       "ok": true,
       "details": {
-        "ts": "2025-11-10T05:48:51.470825+00:00",
+        "ts": "2025-11-11T21:04:21.985629+00:00",
         "pf_ok": true,
         "trades_ok": true,
         "dream_ok": true,
@@ -73,13 +73,13 @@
       }
     },
     "accounting": {
-      "ok": true,
+      "ok": false,
       "details": {
-        "pf_adj_live": 50.21581654428138,
-        "pf_adj_local": 50.21581654428138,
-        "points": 12,
-        "fresh_hours": 0.72,
-        "curve_ok": true,
+        "pf_adj_live": Infinity,
+        "pf_adj_local": Infinity,
+        "points": 5,
+        "fresh_hours": 0.48,
+        "curve_ok": false,
         "pf_ok": true,
         "fresh": true
       }
@@ -113,14 +113,14 @@
     "promotion": {
       "ok": true,
       "details": {
-        "ts": "2025-11-07T20:32:32.069008+00:00",
-        "child": "Echo-058-046-050",
-        "pf_cf": 2.1282380530349396,
-        "uplift": 1.211571651339002,
-        "baseline": 0.9166664016959377,
-        "trades": 27,
-        "recommendation": "PROMOTE",
-        "reason": "meets_criteria"
+        "ts": "2025-11-10T08:00:23.705414+00:00",
+        "id": "0x0000000000000000000000000000000000000000",
+        "source": "mirror",
+        "pf_cf": 0.75,
+        "uplift": null,
+        "trades": null,
+        "recommendation": "HOLD",
+        "reason": "insufficient_metrics"
       }
     },
     "sandbox": {
@@ -230,9 +230,9 @@
     "risk": {
       "ok": true,
       "details": {
-        "ts": "2025-11-10T05:36:26.999680+00:00",
-        "equity": 1447396.1549344487,
-        "peak": 1447396.1549344487,
+        "ts": "2025-11-11T21:00:18.568980+00:00",
+        "equity": 143633.54844935628,
+        "peak": 143633.54844935628,
         "drawdown": 0.0,
         "band": "A",
         "mult": 1.0,
@@ -281,15 +281,15 @@
     "orchestrator": {
       "ok": true,
       "details": {
-        "ts": "2025-11-10T05:45:03.397224+00:00",
+        "ts": "2025-11-11T21:00:17.730305+00:00",
         "inputs": {
           "sci": 0.5053498162942622,
           "rec": "REVIEW",
           "risk_band": "A",
           "risk_mult": 1.0,
-          "pf_local": 51.40293526320986,
-          "count": 26,
-          "pa_armed": true
+          "pf_local": Infinity,
+          "count": 10,
+          "pa_armed": false
         },
         "policy": {
           "allow_opens": true,
@@ -313,7 +313,7 @@
       "ok": true,
       "optional": true,
       "details": {
-        "last_ts": "2025-11-10T05:00:08.518914+00:00",
+        "last_ts": "2025-11-11T21:00:17.761170+00:00",
         "last_codes": [
           "live_loop_stale",
           "live_loop_stale",
@@ -331,7 +331,7 @@
             "symbol": "ETHUSDT",
             "rows": 200,
             "fresh": true,
-            "last_ts": "2025-11-10T05:00:00+00:00",
+            "last_ts": "2025-11-11T21:00:00+00:00",
             "host": "https://api.binance.us"
           }
         ]
@@ -341,7 +341,7 @@
       "ok": true,
       "optional": true,
       "details": {
-        "ts": "2025-11-10T05:00:00+00:00",
+        "ts": "2025-11-11T21:00:00+00:00",
         "symbol": "ETHUSDT",
         "timeframe": "1h"
       }
@@ -369,18 +369,27 @@
       "ok": true,
       "optional": true,
       "details": {
-        "last_equity": 10040.065050009356,
-        "risk_bps": null,
-        "points": 12
+        "last_equity": 9999.796997315108,
+        "risk_bps": 25,
+        "points": 5
+      }
+    },
+    "simulation": {
+      "ok": true,
+      "optional": true,
+      "details": {
+        "last_equity": 9999.854265875376,
+        "risk_bps": 25,
+        "points": 5
       }
     },
     "evolution": {
-      "ok": false,
+      "ok": true,
       "optional": true,
       "details": {
-        "candidates": 0,
-        "proposals": 0,
-        "last_ts": "2025-11-10T05:48:51.326995+00:00"
+        "candidates": 1,
+        "proposals": 3,
+        "last_ts": "2025-11-10T08:00:23.705414+00:00"
       }
     }
   }

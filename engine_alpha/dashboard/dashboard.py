@@ -16,6 +16,20 @@ from typing import Any, Dict, List, Optional, Tuple
 import altair as alt
 import pandas as pd
 import streamlit as st
+
+def _y_zoom(points, pad=5.0):
+    try:
+        vals = [float(x.get('equity', 0)) for x in points[-100:]]
+        if not vals:
+            return None
+        lo, hi = min(vals), max(vals)
+        if hi - lo < pad:
+            mid = (hi + lo) / 2.0
+            return (mid - pad, mid + pad)
+        return (lo - pad, hi + pad)
+    except Exception:
+        return None
+
 try:
     from streamlit_autorefresh import st_autorefresh
 except ModuleNotFoundError:  # pragma: no cover - defensive fallback
@@ -288,15 +302,19 @@ def overview_tab() -> None:
     else:
         last_point = equity_df.iloc[-1]
         color = "green" if last_point.get("adj_pct", 0.0) >= 0 else "red"
+        zoom_domain = _y_zoom(equity_df.to_dict("records"))
+        y_encoding = alt.Y("equity:Q", title="Equity ($)")
+        if zoom_domain:
+            y_encoding = y_encoding.scale(domain=list(zoom_domain))
         line = alt.Chart(equity_df).mark_line(strokeWidth=2).encode(
             x=alt.X("ts:T", title="Time"),
-            y=alt.Y("equity:Q", title="Equity ($)"),
+            y=y_encoding,
         )
         dot = alt.Chart(pd.DataFrame([last_point])).mark_circle(size=90, color=color).encode(
             x="ts:T",
             y="equity:Q",
         )
-        st.altair_chart(line + dot, width='stretch')
+        st.altair_chart(line + dot, use_container_width=True)
 
 
 def portfolio_tab() -> None:
@@ -353,7 +371,8 @@ def sandbox_tab() -> None:
             return "background-color: #fff7c2"
         return "background-color: #fecaca"
 
-    st.dataframe(df.style.applymap(highlight, subset=["pf_adj"]), width='stretch')
+    styler = df.style.map(highlight, subset=["pf_adj"])
+    st.dataframe(styler, use_container_width=True)
 
 
 def load_backtest_runs() -> List[Dict[str, Any]]:
@@ -408,15 +427,19 @@ def backtest_tab() -> None:
     else:
         last_point = df.iloc[-1]
         color = "green" if float(last_point.get("adj_pct") or 0.0) >= 0 else "red"
+        zoom_domain = _y_zoom(df.to_dict("records"))
+        y_encoding = alt.Y("equity:Q", title="Equity ($)")
+        if zoom_domain:
+            y_encoding = y_encoding.scale(domain=list(zoom_domain))
         line = alt.Chart(df).mark_line(strokeWidth=2).encode(
             x=alt.X("ts:T", title="Time"),
-            y=alt.Y("equity:Q", title="Equity ($)"),
+            y=y_encoding,
         )
         dot = alt.Chart(pd.DataFrame([last_point])).mark_circle(size=90, color=color).encode(
             x="ts:T",
             y="equity:Q",
         )
-        st.altair_chart(line + dot, width='stretch')
+        st.altair_chart(line + dot, use_container_width=True)
 
     trades_tail = jsonl_tail(run_dir / "trades.jsonl", n=15)
     if trades_tail:

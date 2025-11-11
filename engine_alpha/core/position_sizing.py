@@ -18,6 +18,7 @@ __all__ = [
     "load_cfg",
     "risk_fraction",
     "compute_R",
+    "cap_pct",
     "can_open",
     "pretrade_check",
     "read_equity_live",
@@ -28,7 +29,7 @@ __all__ = [
 
 _DEFAULTS = {
     "start_equity_live": 10000.0,
-    "risk_per_trade_bps": 100,
+    "risk_per_trade_bps": 25,
     "max_gross_exposure_r": 4.0,
     "max_symbol_exposure_r": 2.0,
     "slippage_bps_cap": 50,
@@ -36,6 +37,8 @@ _DEFAULTS = {
     "reject_if_spread_bps_gt": 20,
     "reject_if_latency_ms_gt": 2000,
     "write_live_equity": True,
+    "cap_adj_pct": 0.005,
+    "normalize_batch": True,
 }
 
 
@@ -45,7 +48,8 @@ def _load_accounting() -> Dict[str, Any]:
             data = yaml.safe_load(ACCOUNTING_PATH.read_text()) or {}
             if isinstance(data, dict):
                 merged = _DEFAULTS.copy()
-                merged.update({k: v for k, v in data.items() if k in merged})
+                for key, value in data.items():
+                    merged[key] = value
                 return merged
         except Exception:
             return _DEFAULTS.copy()
@@ -63,6 +67,16 @@ def load_cfg() -> Dict[str, Any]:
 def risk_fraction(conf: Dict[str, Any] | None = None) -> float:
     data = conf or cfg()
     return float(data.get("risk_per_trade_bps", _DEFAULTS["risk_per_trade_bps"])) / 10000.0
+
+
+def cap_pct(value: float, cap: float) -> float:
+    try:
+        cap_val = float(cap)
+    except Exception:
+        cap_val = 0.0
+    if cap_val <= 0:
+        return float(value)
+    return max(-cap_val, min(cap_val, float(value)))
 
 
 def compute_R(equity_live: float, conf: Dict[str, Any] | None = None) -> float:

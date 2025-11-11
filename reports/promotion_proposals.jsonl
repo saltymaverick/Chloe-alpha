@@ -3,3 +3,4 @@
 {"ts": "2025-11-07T20:32:32.069008+00:00", "child": "Echo-058-046-050", "pf_cf": 2.1282380530349396, "uplift": 1.211571651339002, "baseline": 0.9166664016959377, "trades": 27, "recommendation": "PROMOTE", "reason": "meets_criteria"}
 {"ts": "2025-11-10T05:57:20.270378+00:00", "id": "mirror_pf_candidate", "source": "mirror", "pf_cf": 0.173, "uplift": null, "trades": null, "recommendation": "HOLD", "reason": "insufficient_metrics"}
 {"ts": "2025-11-10T05:57:20.270484+00:00", "id": "mirror_council_candidate", "source": "mirror", "pf_cf": 0.66, "uplift": null, "trades": null, "recommendation": "HOLD", "reason": "insufficient_metrics"}
+{"ts": "2025-11-10T08:00:23.705414+00:00", "id": "0x0000000000000000000000000000000000000000", "source": "mirror", "pf_cf": 0.75, "uplift": null, "trades": null, "recommendation": "HOLD", "reason": "insufficient_metrics"}
