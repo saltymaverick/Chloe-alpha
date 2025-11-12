@@ -478,6 +478,137 @@ def render_last_signal():
             st.caption(ref["text"])
 # endregion last-signal
 # @cursor-guard:dashboard-safe:v1
+# region equity-chart
+import os, json
+from datetime import datetime
+from typing import List, Dict, Any
+
+try:
+    import streamlit as st
+except Exception:
+    st = None
+
+
+def _read_json(path: str):
+    if not os.path.exists(path):
+        return None
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:
+        return None
+
+
+def _read_jsonl(path: str, max_lines: int = 5000) -> List[Dict[str, Any]]:
+    if not os.path.exists(path):
+        return []
+    out: List[Dict[str, Any]] = []
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            for i, line in enumerate(f):
+                if not line.strip():
+                    continue
+                try:
+                    out.append(json.loads(line))
+                except Exception:
+                    continue
+                if i >= max_lines:
+                    break
+    except Exception:
+        pass
+    return out
+
+
+def _parse_ts(iso: str):
+    try:
+        return datetime.datetime.fromisoformat(str(iso).replace("Z", "+00:00")).astimezone()
+    except Exception:
+        return None
+
+
+def _load_equity_series():
+    series: List[tuple[datetime.datetime, float]] = []
+    for p in ("reports/equity_norm.json", "reports/equity_live.json"):
+        obj = _read_json(p)
+        if isinstance(obj, list) and obj:
+            for row in obj:
+                ts = _parse_ts(row.get("timestamp") or row.get("updated_at"))
+                eq = row.get("equity")
+                if ts and isinstance(eq, (int, float)):
+                    series.append((ts, float(eq)))
+            if series:
+                series.sort(key=lambda x: x[0])
+                return series
+        elif isinstance(obj, dict) and obj:
+            ts = _parse_ts(obj.get("timestamp") or obj.get("updated_at"))
+            eq = obj.get("equity")
+            if ts and isinstance(eq, (int, float)):
+                return [(ts, float(eq))]
+
+    trades = _read_jsonl("reports/trades.jsonl", max_lines=20000)
+    if not trades:
+        return series
+
+    tmp: List[tuple[datetime.datetime, float]] = []
+    for t in trades:
+        ts = _parse_ts(t.get("timestamp") or t.get("time") or t.get("updated_at"))
+        eq = t.get("equity_after") or t.get("balance_after")
+        if ts and isinstance(eq, (int, float)):
+            tmp.append((ts, float(eq)))
+    if tmp:
+        tmp.sort(key=lambda x: x[0])
+        return tmp
+
+    equity = 10_000.0
+    series = []
+    for t in trades:
+        ts = _parse_ts(t.get("timestamp") or t.get("time") or t.get("updated_at"))
+        if not ts:
+            continue
+        if "pct_pnl" in t and isinstance(t["pct_pnl"], (int, float)):
+            equity *= 1.0 + float(t["pct_pnl"]) / 100.0
+        elif "pnl" in t and isinstance(t["pnl"], (int, float)):
+            equity += float(t["pnl"])
+        series.append((ts, float(equity)))
+
+    series.sort(key=lambda x: x[0])
+    return series
+
+
+def render_equity_chart():
+    if st is None:
+        return
+    data = _load_equity_series()
+    if not data:
+        st.caption("Equity chart: no data yet.")
+        return
+
+    import pandas as pd
+    import altair as alt
+
+    df = pd.DataFrame({"timestamp": [d[0] for d in data], "equity": [d[1] for d in data]})
+    if len(df) > 5000:
+        df = df.tail(5000)
+
+    y_min, y_max = float(df["equity"].min()), float(df["equity"].max())
+    pad = max(1.0, (y_max - y_min) * 0.05)
+    y_domain = [y_min - pad, y_max + pad]
+
+    chart = (
+        alt.Chart(df)
+        .mark_line()
+        .encode(
+            x=alt.X("timestamp:T", title="Time"),
+            y=alt.Y("equity:Q", title="Equity ($)", scale=alt.Scale(domain=y_domain)),
+            tooltip=[alt.Tooltip("timestamp:T"), alt.Tooltip("equity:Q", format=",.2f")],
+        )
+        .properties(height=240)
+        .interactive(bind_y=False)
+    )
+
+    st.altair_chart(chart, use_container_width=True)
+# endregion equity-chart
+# @cursor-guard:dashboard-safe:v1
 # region loop-health-tile
 
 _LH_PATHS = [
@@ -1069,28 +1200,10 @@ def overview_tab() -> None:
         f"{float(last_equity_value):,.2f}" if isinstance(last_equity_value, (int, float)) else "N/A",
     )
 
-    if equity_df is None or len(equity_df) < 2:
-        st.caption("Equity curve: N/A (need ≥2 points)")
-        if mode == "Risk-weighted":
-            st.info("Run: python -m tools.diagnostic_risk_exec")
-        elif mode == "Risk-normalized":
-            st.info("Run: python -m tools.normalize_equity")
-    else:
-        last_point = equity_df.iloc[-1]
-        color = "green" if last_point.get("adj_pct", 0.0) >= 0 else "red"
-        zoom_domain = _y_zoom(equity_df.to_dict("records"))
-        y_encoding = alt.Y("equity:Q", title="Equity ($)")
-        if zoom_domain:
-            y_encoding = y_encoding.scale(domain=list(zoom_domain))
-        line = alt.Chart(equity_df).mark_line(strokeWidth=2).encode(
-            x=alt.X("ts:T", title="Time"),
-            y=y_encoding,
-        )
-        dot = alt.Chart(pd.DataFrame([last_point])).mark_circle(size=90, color=color).encode(
-            x="ts:T",
-            y="equity:Q",
-        )
-        st.altair_chart(line + dot, width='stretch')
+    # @cursor-guard:dashboard-safe:v1
+    # region equity-chart
+    render_equity_chart()
+    # endregion equity-chart
 
 
 def portfolio_tab() -> None:
