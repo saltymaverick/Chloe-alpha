@@ -148,12 +148,6 @@ except Exception:
 # endregion dashboard-style
 # @cursor-guard:dashboard-safe:v1
 # region loop-health-tile
-import os, json, datetime
-
-try:
-    import streamlit as st
-except Exception:
-    st = None
 
 _LH_PATHS = [
     "reports/loop_health.json",
@@ -221,7 +215,7 @@ def _choose_loop_health():
         n = _normalize_lh(j)
         if n:
             if not n.get("updated_at"):
-                n["updated_at"] = datetime.datetime.utcnow().replace(microsecond=0).isoformat() + "Z"
+                n["updated_at"] = datetime.utcnow().replace(microsecond=0).isoformat() + "Z"
             return n
     return {"rec": "UNKNOWN", "sci": None, "pa_on": False, "errors": None, "updated_at": None}
 
@@ -234,7 +228,7 @@ def _to_local_min_lh(iso):
     if not iso:
         return "Updated —"
     try:
-        dt = datetime.datetime.fromisoformat(str(iso).replace("Z", "+00:00")).astimezone()
+        dt = datetime.fromisoformat(str(iso).replace("Z", "+00:00")).astimezone()
         return "Updated " + dt.replace(second=0, microsecond=0).isoformat(timespec="minutes")
     except Exception:
         return "Updated —"
@@ -254,7 +248,6 @@ def render_loop_health_tile():
 # endregion loop-health-tile
 # @cursor-guard:dashboard-safe:v1
 # region bias-tile
-_ci_get = lambda o,k: (o.get(k) if isinstance(o,dict) and k in o else next((o[v] for v in (o or {}) if isinstance(v,str) and v.lower()==k.lower()), None))
 
 _BIAS_PATHS = [
     "reports/bias.json",
