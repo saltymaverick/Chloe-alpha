@@ -184,6 +184,45 @@ except Exception:
     pass
 # endregion dashboard-polish
 # @cursor-guard:dashboard-safe:v1
+# region dashboard-pulse
+import os, json, time
+
+try:
+    import streamlit as st
+except Exception:
+    st = None
+
+_PULSE_PATHS = [
+    "reports/trades.jsonl",
+    "reports/gpt_reflection.jsonl",
+    "reports/equity_norm.json",
+    "reports/equity_live.json",
+]
+
+
+def _get_latest_mtime(paths):
+    mtimes = []
+    for p in paths:
+        if os.path.exists(p):
+            try:
+                mtimes.append(os.path.getmtime(p))
+            except Exception:
+                pass
+    return max(mtimes) if mtimes else None
+
+
+def render_pulse_indicator():
+    if st is None:
+        return
+    mtime = _get_latest_mtime(_PULSE_PATHS)
+    if not mtime:
+        st.caption("🩶 Pulse: Idle")
+        return
+    age = time.time() - mtime
+    color = "🟢" if age < 15 else "🟡" if age < 60 else "🔴"
+    st.caption(f"{color} Pulse – updated {int(age)} s ago")
+# endregion dashboard-pulse
+# @cursor-guard:dashboard-safe:v1
 # region council-details
 import os, json
 from datetime import datetime
@@ -948,6 +987,11 @@ def render_heartbeat_and_activity() -> None:
 
 def overview_tab() -> None:
     st.header("Overview")
+
+    # @cursor-guard:dashboard-safe:v1
+    # region dashboard-pulse
+    render_pulse_indicator()
+    # endregion dashboard-pulse
 
     # @cursor-guard:dashboard-safe:v1
     # region dashboard-row-tiles
