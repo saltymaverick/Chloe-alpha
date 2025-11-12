@@ -147,6 +147,298 @@ except Exception:
     pass
 # endregion dashboard-style
 # @cursor-guard:dashboard-safe:v1
+# region dashboard-polish
+try:
+    import streamlit as st
+    st.markdown(
+        """
+        <style>
+        /* ----- Global Dashboard Polish (Phase 40) ----- */
+        .block-container { padding-top: 1rem; }
+        h2, h3 { margin-bottom: 0.25rem; }
+        .stMarkdown p { margin: 0.1rem 0; }
+
+        /* PF, Bias, Confidence numeric colors */
+        .pf-tile .green, .bias-green, .conf-green { color: #10B981; font-weight: 600; }
+        .pf-tile .amber, .bias-amber, .conf-amber { color: #F59E0B; font-weight: 600; }
+        .pf-tile .red,   .bias-red,   .conf-red   { color: #EF4444; font-weight: 600; }
+
+        /* Status highlighting */
+        .status-green { color: #10B981; }
+        .status-amber { color: #F59E0B; }
+        .status-red   { color: #EF4444; }
+
+        /* Optional glow for active/green */
+        .glow-green { text-shadow: 0 0 6px rgba(16,185,129,0.7); }
+
+        /* tile captions */
+        .stCaption, .st-emotion-cache-q8sbsg { font-size: 0.82rem !important; opacity: 0.9; }
+
+        /* Align expander content spacing */
+        div[data-testid="stExpander"] { margin-top: 0.5rem; }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+except Exception:
+    pass
+# endregion dashboard-polish
+# @cursor-guard:dashboard-safe:v1
+# region council-details
+import os, json
+from datetime import datetime
+
+try:
+    import streamlit as st
+except Exception:
+    st = None
+
+_CN_PATH = "reports/council_snapshot.json"
+
+
+def _read_json_cn(path):
+    if not os.path.exists(path):
+        return None
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:
+        return None
+
+
+def _fmt_ts_local(iso):
+    if not iso:
+        return "Updated —"
+    try:
+        dt = datetime.datetime.fromisoformat(str(iso).replace("Z", "+00:00")).astimezone()
+        return "Updated " + dt.replace(second=0, microsecond=0).isoformat(timespec="minutes")
+    except Exception:
+        return "Updated —"
+
+
+def _normalize_cn(obj):
+    if not isinstance(obj, dict):
+        return None
+
+    def get(d, *ks):
+        if not isinstance(d, dict):
+            return None
+        for k in ks:
+            if isinstance(k, str) and k in d:
+                return d[k]
+        return None
+
+    rec = get(obj, "rec", "recommendation", "decision") or "UNKNOWN"
+    sci = get(obj, "sci", "system_confidence", "confidence")
+    pa = get(obj, "pa", "profit_amplifier", "pa_status")
+
+    if isinstance(pa, dict):
+        pa_on = bool(get(pa, "active", "on"))
+    elif isinstance(pa, str):
+        pa_on = pa.strip().upper() in {"ON", "TRUE", "ACTIVE", "1"}
+    elif isinstance(pa, (int, float)):
+        pa_on = bool(pa)
+    else:
+        pa_on = False
+
+    votes = get(obj, "votes", "council_votes", "weighting", "weights") or {}
+    strategies = get(obj, "active_strategies", "strategies", "running") or []
+    errors = get(obj, "errors", "incidents", "error_count", "incident_count")
+    ts = get(obj, "updated_at", "timestamp", "time")
+
+    try:
+        sci = float(sci) if sci is not None else None
+    except Exception:
+        sci = None
+
+    try:
+        if isinstance(errors, list):
+            err_count = len(errors)
+        elif errors is None:
+            err_count = None
+        else:
+            err_count = int(errors)
+    except Exception:
+        err_count = None
+
+    if isinstance(votes, dict):
+        def w(val):
+            try:
+                return float(val)
+            except Exception:
+                return -1.0
+
+        votes = dict(sorted(votes.items(), key=lambda kv: w(kv[1]), reverse=True))
+
+    return {
+        "rec": str(rec).upper(),
+        "sci": sci,
+        "pa_on": pa_on,
+        "votes": votes,
+        "strategies": strategies,
+        "errors": errors if isinstance(errors, list) else None,
+        "error_count": err_count,
+        "updated_at": ts,
+    }
+
+
+def render_council_details():
+    if st is None:
+        return
+    obj = _read_json_cn(_CN_PATH)
+    data = _normalize_cn(obj) or {
+        "rec": "UNKNOWN",
+        "sci": None,
+        "pa_on": False,
+        "votes": {},
+        "strategies": [],
+        "errors": None,
+        "error_count": None,
+        "updated_at": None,
+    }
+
+    with st.expander("Council Snapshot", expanded=False):
+        st.caption(_fmt_ts_local(data.get("updated_at")))
+        col1, col2 = st.columns([1, 1], gap="small")
+        with col1:
+            st.markdown(f"**REC:** {data['rec']}")
+            st.markdown(f"**SCI:** {data['sci']:.2f}" if isinstance(data["sci"], (int, float)) else "**SCI:** —")
+            st.markdown(f"**PA:** {'ON' if data['pa_on'] else 'OFF'}")
+            if data.get("error_count") is not None:
+                st.markdown(f"**Errors:** {data['error_count']}")
+        with col2:
+            if isinstance(data.get("strategies"), list) and data["strategies"]:
+                st.markdown("**Active Strategies**")
+                st.markdown(", ".join(map(str, data["strategies"])))
+            if isinstance(data.get("votes"), dict) and data["votes"]:
+                st.markdown("**Votes (top)**")
+                items = list(data["votes"].items())[:5]
+                lines = [f"- **{k}**: {v}" for k, v in items]
+                st.markdown("\n".join(lines))
+        if isinstance(data.get("errors"), list) and data["errors"]:
+            st.markdown("**Recent Errors**")
+            for e in data["errors"][:5]:
+                st.caption(f"- {e}")
+# endregion council-details
+# @cursor-guard:dashboard-safe:v1
+# region last-signal
+import os, json
+from datetime import datetime
+
+try:
+    import streamlit as st
+except Exception:
+    st = None
+
+_TRADES_PATH = "reports/trades.jsonl"
+_REFLECT_PATHS = [
+    "reports/gpt_reflection.jsonl",
+    "engine_alpha/reflect/gpt_reflection.jsonl",
+]
+
+
+def _read_last_jsonl(path, max_scan: int = 2000):
+    if not os.path.exists(path):
+        return None
+    try:
+        size = os.path.getsize(path)
+        with open(path, "rb") as f:
+            start = max(0, size - max_scan)
+            if start:
+                f.seek(start)
+            tail = f.read().splitlines()
+        for line in reversed(tail):
+            if not line.strip():
+                continue
+            try:
+                return json.loads(line.decode("utf-8") if isinstance(line, (bytes, bytearray)) else line)
+            except Exception:
+                continue
+    except Exception:
+        return None
+    return None
+
+
+def _fmt_ts_local_last(iso):
+    if not iso:
+        return "Updated —"
+    try:
+        dt = datetime.datetime.fromisoformat(str(iso).replace("Z", "+00:00")).astimezone()
+        return "Updated " + dt.replace(second=0, microsecond=0).isoformat(timespec="minutes")
+    except Exception:
+        return "Updated —"
+
+
+def _normalize_trade(obj):
+    if not isinstance(obj, dict):
+        return None
+    side = obj.get("side") or obj.get("direction") or obj.get("type")
+    sym = obj.get("symbol") or obj.get("pair") or obj.get("market") or "—"
+    conf = obj.get("confidence") or obj.get("conf") or obj.get("score")
+    pnl = obj.get("pnl") or obj.get("pct_pnl") or obj.get("profit_pct") or obj.get("profit")
+    ts = obj.get("timestamp") or obj.get("time") or obj.get("updated_at")
+    pf_win = obj.get("pf_window") or obj.get("window") or "local"
+    reason = obj.get("reason") or obj.get("rationale") or None
+    side = str(side).upper() if side else "—"
+    try:
+        conf = float(conf)
+    except Exception:
+        conf = None
+    try:
+        pnl = float(pnl)
+    except Exception:
+        pnl = None
+    return {
+        "side": side,
+        "symbol": sym,
+        "confidence": conf,
+        "pnl": pnl,
+        "pf_window": pf_win,
+        "timestamp": ts,
+        "reason": reason,
+    }
+
+
+def _normalize_reflection(obj):
+    if not isinstance(obj, dict):
+        return None
+    txt = obj.get("reflection") or obj.get("note") or obj.get("message") or obj.get("text")
+    ts = obj.get("timestamp") or obj.get("time") or obj.get("updated_at")
+    if not isinstance(txt, str) or not txt.strip():
+        return None
+    return {"text": txt.strip(), "timestamp": ts}
+
+
+def _choose_last_signal():
+    tr = _normalize_trade(_read_last_jsonl(_TRADES_PATH))
+    ref = None
+    for p in _REFLECT_PATHS:
+        r = _read_last_jsonl(p)
+        ref = _normalize_reflection(r)
+        if ref:
+            break
+    return tr, ref
+
+
+def render_last_signal():
+    if st is None:
+        return
+    tr, ref = _choose_last_signal()
+    with st.expander("Last Signal", expanded=False):
+        if not tr:
+            st.caption("No recent trades found.")
+            return
+        conf = f"{tr['confidence']:.2f}" if isinstance(tr["confidence"], (int, float)) else "—"
+        pnl = f"{tr['pnl']:.2f}%" if isinstance(tr["pnl"], (int, float)) else "—"
+        st.markdown(f"**{tr['side']} • {tr['symbol']}**  |  **Conf:** {conf}  |  **PnL:** {pnl}")
+        st.caption(f"{tr['pf_window']} • {_fmt_ts_local_last(tr.get('timestamp'))}")
+        if tr.get("reason"):
+            st.markdown(f"**Reason**: {tr['reason']}")
+        if ref:
+            st.markdown("**Reflection**")
+            st.caption(ref["text"])
+# endregion last-signal
+# @cursor-guard:dashboard-safe:v1
 # region loop-health-tile
 
 _LH_PATHS = [
@@ -679,6 +971,14 @@ def overview_tab() -> None:
     # region loop-health-tile
     render_loop_health_tile()
     # endregion loop-health-tile
+    # @cursor-guard:dashboard-safe:v1
+    # region council-details
+    render_council_details()
+    # endregion council-details
+    # @cursor-guard:dashboard-safe:v1
+    # region last-signal
+    render_last_signal()
+    # endregion last-signal
 
     col_pa, col_equity = st.columns(2)
 
