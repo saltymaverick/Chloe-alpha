@@ -16,6 +16,285 @@ from typing import Any, Dict, List, Optional, Tuple
 import altair as alt
 import pandas as pd
 import streamlit as st
+# @cursor-guard:pf-tile:v1
+# region pf-tile
+import os
+
+try:
+    import streamlit as st
+except Exception:
+    st = None  # streamlit might not be available during headless runs
+
+PF_LIVE = "reports/pf_local_live.json"
+PF_NORM = "reports/pf_local_norm.json"
+
+
+def _read_json(path):
+    if not os.path.exists(path):
+        return None
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:
+        return None
+
+
+def _normalize(obj):
+    if not obj:
+        return None
+    pf_value = obj.get("pf_value") or obj.get("pf") or obj.get("value")
+    pf_window = obj.get("pf_window") or obj.get("window") or "local"
+    trades = int(obj.get("trades_count") or obj.get("trades") or obj.get("count") or 0)
+    updated = obj.get("updated_at") or obj.get("updated") or obj.get("timestamp")
+    delta = obj.get("delta_pf")
+    return {
+        "pf_value": float(pf_value) if pf_value is not None else None,
+        "pf_window": pf_window or "local",
+        "trades_count": trades,
+        "updated_at": str(updated) if updated else None,
+        "delta_pf": float(delta) if isinstance(delta, (int, float)) else None,
+    }
+
+
+def _choose_pf():
+    live = _normalize(_read_json(PF_LIVE))
+    norm = _normalize(_read_json(PF_NORM))
+    if live and live["trades_count"] >= 30:
+        chosen = live
+        source = "live"
+    elif norm:
+        chosen = norm
+        source = "norm"
+    else:
+        return {
+            "pf_value": None,
+            "pf_window": "local",
+            "trades_count": 0,
+            "source": "none",
+            "updated_at": None,
+            "delta_pf": None,
+        }
+    chosen["source"] = source
+    if not chosen.get("updated_at"):
+        chosen["updated_at"] = datetime.utcnow().replace(microsecond=0).isoformat() + "Z"
+    return chosen
+
+
+def _to_local_min(iso_str):
+    if not iso_str:
+        return "Updated —"
+    try:
+        dt = datetime.fromisoformat(iso_str.replace("Z", "+00:00"))
+        local = dt.astimezone().replace(second=0, microsecond=0)
+        return "Updated " + local.isoformat(timespec="minutes")
+    except Exception:
+        return "Updated —"
+
+
+def _fmt_pf(pf):
+    return f"{pf:.2f}" if isinstance(pf, (int, float)) else "—"
+
+
+def _pf_band(pf):
+    if not isinstance(pf, (int, float)):
+        return "red", "#dc2626"
+    if pf >= 1.10:
+        return "green", "#16a34a"
+    if pf >= 1.00:
+        return "amber", "#d97706"
+    return "red", "#dc2626"
+
+
+def render_pf_tile():
+    if st is None:
+        return
+    d = _choose_pf()
+    pf, win, n, src, upd, dp = (
+        d.get("pf_value"),
+        d.get("pf_window") or "local",
+        d.get("trades_count") or 0,
+        d.get("source") or "none",
+        d.get("updated_at"),
+        d.get("delta_pf"),
+    )
+    _, color_hex = _pf_band(pf)
+    value_markup = f"<span style='color:{color_hex}; font-size:1.4rem; font-weight:600;'>{_fmt_pf(pf)}</span>"
+    st.markdown('<div id="pf-tile-main"></div>', unsafe_allow_html=True)
+    st.subheader("Profit Factor")
+    st.markdown(value_markup, unsafe_allow_html=True)
+    st.caption(f"{src.upper()} • {win} • {n} trades")
+    st.caption(_to_local_min(upd))
+    if isinstance(dp, (int, float)):
+        arrow = "▲" if dp >= 0 else "▼"
+        st.caption(f"{arrow} {abs(dp):.2f}")
+# endregion pf-tile
+# @cursor-guard:dashboard-safe:v1
+# region bias-tile
+_ci_get = lambda o,k: (o.get(k) if isinstance(o,dict) and k in o else next((o[v] for v in (o or {}) if isinstance(v,str) and v.lower()==k.lower()), None))
+
+_BIAS_PATHS = [
+    "reports/bias.json",
+    "reports/council_snapshot.json",
+]
+
+
+def _read_json_bias(path):
+    if not os.path.exists(path):
+        return None
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:
+        return None
+
+
+def _normalize_bias(obj):
+    if not obj:
+        return None
+    raw = (
+        obj.get("bias")
+        or obj.get("avg_bias")
+        or obj.get("value")
+        or (obj.get("metrics", {}) if isinstance(obj.get("metrics"), dict) else {}).get("bias")
+    )
+    if isinstance(raw, str):
+        raw_str = raw.strip()
+        raw = float(raw_str) if raw_str.replace(".", "", 1).isdigit() else raw
+    b = float(raw) if isinstance(raw, (int, float)) else None
+    if b is not None:
+        b = max(0.0, min(1.0, b))
+    ts = obj.get("updated_at") or obj.get("timestamp") or obj.get("time")
+    return {"bias": b, "updated_at": ts}
+
+
+def _choose_bias():
+    for p in _BIAS_PATHS:
+        j = _read_json_bias(p)
+        n = _normalize_bias(j)
+        if n:
+            if not n.get("updated_at"):
+                n["updated_at"] = datetime.utcnow().replace(microsecond=0).isoformat() + "Z"
+            return n
+    return {"bias": None, "updated_at": None}
+
+
+def _bias_band(v):
+    if v is None:
+        return "neutral"
+    if v >= 0.60:
+        return "green"
+    if v >= 0.45:
+        return "amber"
+    return "red"
+
+
+def _fmt01(v):
+    return f"{v:.2f}" if isinstance(v, (int, float)) else "—"
+
+
+def _to_local_min_bias(iso):
+    if not iso:
+        return "Updated —"
+    try:
+        dt = datetime.fromisoformat(str(iso).replace("Z", "+00:00")).astimezone()
+        return "Updated " + dt.replace(second=0, microsecond=0).isoformat(timespec="minutes")
+    except Exception:
+        return "Updated —"
+
+
+def render_bias_tile():
+    if st is None:
+        return
+    d = _choose_bias()
+    v, upd = d.get("bias"), d.get("updated_at")
+    st.subheader("Bias")
+    st.markdown(f"**{_fmt01(v)}**")
+    st.caption(_to_local_min_bias(upd))
+# endregion bias-tile
+# @cursor-guard:dashboard-safe:v1
+# region confidence-tile
+
+_CONF_PATHS = [
+    "reports/confidence.json",
+    "reports/council_snapshot.json",
+    "reports/loop_health.json",
+]
+
+
+def _read_json_conf(path):
+    if not os.path.exists(path):
+        return None
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:
+        return None
+
+
+def _normalize_conf(obj):
+    if not obj:
+        return None
+    raw = (
+        obj.get("confidence")
+        or obj.get("sci")
+        or obj.get("system_confidence")
+        or obj.get("value")
+        or (obj.get("metrics", {}) if isinstance(obj.get("metrics"), dict) else {}).get("confidence")
+    )
+    if isinstance(raw, str):
+        raw_str = raw.strip()
+        raw = float(raw_str) if raw_str.replace(".", "", 1).isdigit() else raw
+    c = float(raw) if isinstance(raw, (int, float)) else None
+    if c is not None:
+        c = max(0.0, min(1.0, c))
+    ts = obj.get("updated_at") or obj.get("timestamp") or obj.get("time")
+    return {"confidence": c, "updated_at": ts}
+
+
+def _choose_confidence():
+    for p in _CONF_PATHS:
+        j = _read_json_conf(p)
+        n = _normalize_conf(j)
+        if n:
+            if not n.get("updated_at"):
+                n["updated_at"] = datetime.utcnow().replace(microsecond=0).isoformat() + "Z"
+            return n
+    return {"confidence": None, "updated_at": None}
+
+
+def _conf_band(v):
+    if v is None:
+        return "neutral"
+    if v >= 0.65:
+        return "green"
+    if v >= 0.50:
+        return "amber"
+    return "red"
+
+
+def _fmt01c(v):
+    return f"{v:.2f}" if isinstance(v, (int, float)) else "—"
+
+
+def _to_local_min_conf(iso):
+    if not iso:
+        return "Updated —"
+    try:
+        dt = datetime.fromisoformat(str(iso).replace("Z", "+00:00")).astimezone()
+        return "Updated " + dt.replace(second=0, microsecond=0).isoformat(timespec="minutes")
+    except Exception:
+        return "Updated —"
+
+
+def render_confidence_tile():
+    if st is None:
+        return
+    d = _choose_confidence()
+    v, upd = d.get("confidence"), d.get("updated_at")
+    st.subheader("Confidence")
+    st.markdown(f"**{_fmt01c(v)}**")
+    st.caption(_to_local_min_conf(upd))
+# endregion confidence-tile
 def _has_weighted_pf():
     from engine_alpha.core.paths import REPORTS
     import json
@@ -261,24 +540,24 @@ def render_heartbeat_and_activity() -> None:
 def overview_tab() -> None:
     st.header("Overview")
 
-    col_pf, col_pa, col_equity = st.columns(3)
-    pf_obj = _choose_weighted_pf()
-    if not isinstance(pf_obj, dict) or pf_obj.get("pf") is None:
-        pf_value_display = "—"
-        help_text = "insufficient sample (norm until live≥30)"
-    else:
-        try:
-            sample = int(pf_obj.get("count", 0))
-        except Exception:
-            sample = 0
-        pf_value = pf_obj.get("pf")
-        try:
-            pf_float = float(pf_value)
-            pf_value_display = f"{pf_float:.4f}"
-        except Exception:
-            pf_value_display = str(pf_value)
-        help_text = f"sample={sample} (norm until live≥30)"
-    col_pf.metric("PF (Risk-weighted)", pf_value_display, help=help_text)
+    col_pf, col_bias, col_conf = st.columns(3)
+    # @cursor-guard:pf-tile:v1
+    # region pf-tile
+    with col_pf:
+        render_pf_tile()
+    # endregion pf-tile
+    # @cursor-guard:dashboard-safe:v1
+    # region bias-tile
+    with col_bias:
+        render_bias_tile()
+    # endregion bias-tile
+    # @cursor-guard:dashboard-safe:v1
+    # region confidence-tile
+    with col_conf:
+        render_confidence_tile()
+    # endregion confidence-tile
+
+    col_pa, col_equity = st.columns(2)
 
     pa_status = load_json(REPORTS / "pa_status.json")
     governance_snapshot = load_json(REPORTS / "governance_snapshot.json") or {}
