@@ -129,6 +129,130 @@ def render_pf_tile():
         st.caption(f"{arrow} {abs(dp):.2f}")
 # endregion pf-tile
 # @cursor-guard:dashboard-safe:v1
+# region dashboard-style
+try:
+    import streamlit as st
+    st.markdown(
+        """
+        <style>
+          /* tighter heading & caption rhythm inside tiles */
+          .block-container h2, .block-container h3 { margin: 0.15rem 0 0.25rem 0; }
+          .block-container .stMarkdown p { margin: 0.15rem 0; }
+          .block-container .stCaption { margin: 0.10rem 0 !important; }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+except Exception:
+    pass
+# endregion dashboard-style
+# @cursor-guard:dashboard-safe:v1
+# region loop-health-tile
+import os, json, datetime
+
+try:
+    import streamlit as st
+except Exception:
+    st = None
+
+_LH_PATHS = [
+    "reports/loop_health.json",
+    "reports/council_snapshot.json",
+]
+
+
+def _read_json_lh(path):
+    if not os.path.exists(path):
+        return None
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:
+        return None
+
+
+def _ci_get(d, *keys):
+    if not isinstance(d, dict):
+        return None
+    lower = {(k.lower() if isinstance(k, str) else k): v for k, v in d.items()}
+    for k in keys:
+        if isinstance(k, str):
+            if k in d:
+                return d[k]
+            if k.lower() in lower:
+                return lower[k.lower()]
+        else:
+            return None
+    return None
+
+
+def _normalize_lh(obj):
+    if not obj:
+        return None
+    rec = _ci_get(obj, "rec", "recommendation", "status_rec", "decision")
+    sci = _ci_get(obj, "sci", "system_confidence", "confidence")
+    try:
+        sci = float(sci) if sci is not None else None
+    except Exception:
+        sci = None
+    pa = _ci_get(obj, "pa", "profit_amplifier", "pa_status")
+    if isinstance(pa, dict):
+        pa_on = bool(_ci_get(pa, "active") or _ci_get(pa, "on"))
+    else:
+        pa_on = str(pa).strip().upper() in {"ON", "TRUE", "ACTIVE", "1"}
+    errs = _ci_get(obj, "errors", "error_count", "incidents", "incident_count")
+    try:
+        errs = int(errs) if errs is not None else None
+    except Exception:
+        errs = None
+    ts = _ci_get(obj, "updated_at", "timestamp", "time")
+    return {
+        "rec": str(rec).upper() if rec is not None else "UNKNOWN",
+        "sci": sci,
+        "pa_on": bool(pa_on),
+        "errors": errs,
+        "updated_at": ts,
+    }
+
+
+def _choose_loop_health():
+    for p in _LH_PATHS:
+        j = _read_json_lh(p)
+        n = _normalize_lh(j)
+        if n:
+            if not n.get("updated_at"):
+                n["updated_at"] = datetime.datetime.utcnow().replace(microsecond=0).isoformat() + "Z"
+            return n
+    return {"rec": "UNKNOWN", "sci": None, "pa_on": False, "errors": None, "updated_at": None}
+
+
+def _fmt_sci(v):
+    return f"{v:.2f}" if isinstance(v, (int, float)) else "—"
+
+
+def _to_local_min_lh(iso):
+    if not iso:
+        return "Updated —"
+    try:
+        dt = datetime.datetime.fromisoformat(str(iso).replace("Z", "+00:00")).astimezone()
+        return "Updated " + dt.replace(second=0, microsecond=0).isoformat(timespec="minutes")
+    except Exception:
+        return "Updated —"
+
+
+def render_loop_health_tile():
+    if st is None:
+        return
+    d = _choose_loop_health()
+    rec, sci, pa_on, errs, upd = d["rec"], d["sci"], d["pa_on"], d["errors"], d["updated_at"]
+    st.subheader("Status")
+    parts = [f"REC: {rec}", f"SCI: {_fmt_sci(sci)}", f"PA: {'ON' if pa_on else 'OFF'}"]
+    if errs is not None:
+        parts.append(f"ERR: {errs}")
+    st.markdown(" | ".join(parts))
+    st.caption(_to_local_min_lh(upd))
+# endregion loop-health-tile
+# @cursor-guard:dashboard-safe:v1
 # region bias-tile
 _ci_get = lambda o,k: (o.get(k) if isinstance(o,dict) and k in o else next((o[v] for v in (o or {}) if isinstance(v,str) and v.lower()==k.lower()), None))
 
@@ -540,22 +664,28 @@ def render_heartbeat_and_activity() -> None:
 def overview_tab() -> None:
     st.header("Overview")
 
-    col_pf, col_bias, col_conf = st.columns(3)
-    # @cursor-guard:pf-tile:v1
-    # region pf-tile
-    with col_pf:
+    # @cursor-guard:dashboard-safe:v1
+    # region dashboard-row-tiles
+    try:
+        import streamlit as _st  # no-op if already imported
+    except Exception:
+        _st = None
+    if _st is None:
+        return
+    # single, aligned row for PF • Bias • Confidence
+    c1, c2, c3 = _st.columns([1, 1, 1], gap="small")
+    with c1:
         render_pf_tile()
-    # endregion pf-tile
-    # @cursor-guard:dashboard-safe:v1
-    # region bias-tile
-    with col_bias:
+    with c2:
         render_bias_tile()
-    # endregion bias-tile
-    # @cursor-guard:dashboard-safe:v1
-    # region confidence-tile
-    with col_conf:
+    with c3:
         render_confidence_tile()
-    # endregion confidence-tile
+    # endregion dashboard-row-tiles
+
+    # @cursor-guard:dashboard-safe:v1
+    # region loop-health-tile
+    render_loop_health_tile()
+    # endregion loop-health-tile
 
     col_pa, col_equity = st.columns(2)
 
