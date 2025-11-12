@@ -1,10 +1,14 @@
 #!/usr/bin/env python3
+from __future__ import annotations
+
+import os
+
+LIVE_TIMEFRAME = os.getenv("LIVE_TIMEFRAME", "1h")
+
 """
 Live loop runner - Phase 25
 Pulls paper-live signals and advances the orchestrator-gated loop.
 """
-
-from __future__ import annotations
 
 import json
 from datetime import datetime, timezone
@@ -70,11 +74,11 @@ def _within_seconds(ts: str, max_seconds: int) -> bool:
 def main() -> int:
     cfg = _load_cfg()
     symbol = cfg["symbols"][0] if cfg.get("symbols") else "ETHUSDT"
-    timeframe = cfg.get("timeframe", "1h")
+    timeframe = LIVE_TIMEFRAME
     limit = int(cfg.get("limit", 200))
 
     try:
-        rows = get_live_ohlcv(symbol, timeframe, limit=limit)
+        rows = get_live_ohlcv(symbol, LIVE_TIMEFRAME, limit=limit, no_cache=True)
     except Exception as exc:  # pragma: no cover - network errors
         print(f"LIVE-SOAK: fetch_failed error={exc}")
         return 0
@@ -88,17 +92,18 @@ def main() -> int:
         print("LIVE-SOAK: invalid bar timestamp")
         return 0
 
+    print(f"LIVE-SOAK: timeframe={LIVE_TIMEFRAME} last_bar={bar_ts}")
+
     state = _read_state()
     last_ts = state.get("ts")
 
     if last_ts and bar_ts == last_ts:
-        state["heartbeat_ts"] = _now()
-        _write_state(state)
+        _write_state({"ts": last_ts, "heartbeat_ts": _now()})
         print(f"LIVE-SOAK: heartbeat ts={bar_ts}")
         return 0
 
     try:
-        result = run_step_live(symbol=symbol, timeframe=timeframe, limit=limit, bar_ts=bar_ts)
+        result = run_step_live(symbol=symbol, timeframe=LIVE_TIMEFRAME, limit=limit, bar_ts=bar_ts)
     except Exception as exc:  # pragma: no cover - defensive
         print(f"LIVE-SOAK: step_failed error={exc}")
         return 0
@@ -111,36 +116,19 @@ def main() -> int:
 
     policy = result.get("policy", {})
     final = result.get("final", {})
-    risk_adapter = result.get("risk_adapter", {})
+    allow_opens = bool(policy.get("allow_opens", True))
+    final_dir = int(final.get("dir", 0)) if isinstance(final.get("dir"), (int, float)) else 0
+    try:
+        final_conf = float(final.get("conf", 0.0))
+    except Exception:
+        final_conf = 0.0
 
-    payload = {
-        "ts": bar_ts,
-        "symbol": symbol,
-        "timeframe": timeframe,
-        "policy": {
-            "allow_opens": bool(policy.get("allow_opens", True)),
-            "allow_pa": bool(policy.get("allow_pa", True)),
-        },
-        "final": {
-            "dir": int(final.get("dir", 0)) if isinstance(final.get("dir"), (int, float)) else 0,
-            "conf": float(final.get("conf", 0.0)) if isinstance(final.get("conf"), (int, float)) else 0.0,
-        },
-        "risk_band": risk_adapter.get("band"),
-        "heartbeat_ts": _now(),
-    }
-
-    _write_state(payload)
+    _write_state({"ts": bar_ts, "heartbeat_ts": _now()})
     print(
-        "LIVE-SOAK: ts={ts} dir={dir} conf={conf:.4f} allow_opens={opens}".format(
-            ts=bar_ts,
-            dir=payload["final"]["dir"],
-            conf=payload["final"]["conf"],
-            opens=payload["policy"]["allow_opens"],
-        )
+        f"LIVE-SOAK: ts={bar_ts} dir={final_dir} conf={final_conf:.4f} allow_opens={allow_opens}"
     )
     return 0
 
 
 if __name__ == "__main__":
     raise SystemExit(main())
-

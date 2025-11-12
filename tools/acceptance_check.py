@@ -706,6 +706,31 @@ def _section_simulation() -> Dict[str, Any]:
     return {"ok": ok, "optional": True, "details": details}
 
 
+def _section_pa_policy() -> Dict[str, Any]:
+    snapshot = _read_json(REPORTS / "orchestrator_snapshot.json")
+    inputs = snapshot.get("inputs", {}) if isinstance(snapshot, dict) else {}
+    policy = snapshot.get("policy", {}) if isinstance(snapshot, dict) else {}
+    rec = inputs.get("rec")
+    sci = inputs.get("sci")
+    pf_value = inputs.get("pf_weighted", inputs.get("pf_local"))
+    count = inputs.get("count")
+    loss_streak = inputs.get("loss_streak")
+    allow_pa = policy.get("allow_pa")
+    has_keys = isinstance(policy, dict) and "allow_pa" in policy and "allow_opens" in policy
+    details = {
+        "rec": rec,
+        "sci": sci,
+        "pf": pf_value,
+        "count": count,
+        "loss_streak": loss_streak,
+        "allow_pa": allow_pa,
+        "reason": snapshot.get("notes"),
+    }
+    if not has_keys:
+        details["note"] = "policy keys missing"
+    return {"ok": True, "optional": True, "details": details}
+
+
 def _section_evolution() -> Dict[str, Any]:
     horizon = timedelta(hours=48)
     candidates_path = REPORTS / "mirror_candidates.json"
@@ -745,6 +770,17 @@ def _section_evolution() -> Dict[str, Any]:
     return {"ok": ok, "optional": True, "details": details}
 
 
+def _pf_details_guard(pf_obj):
+    try:
+        if not pf_obj: return None
+        pf = pf_obj.get('pf'); cnt = pf_obj.get('count',0)
+        if pf in (float('inf'), None) or str(pf).lower()=='infinity':
+            if cnt < 30:
+                return {'pf': None, 'count': cnt, 'note': 'insufficient sample'}
+        return {'pf': pf, 'count': cnt}
+    except Exception:
+        return None
+
 def main() -> int:
     sections = {
         "feeds": _section_feeds(),
@@ -769,6 +805,7 @@ def main() -> int:
         "auto_apply": _section_auto_apply(),
         "risk_exec": _section_risk_exec(),
         "simulation": _section_simulation(),
+        "pa_policy": _section_pa_policy(),
         "evolution": _section_evolution(),
     }
     blocking_sections = {

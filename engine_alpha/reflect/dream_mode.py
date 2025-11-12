@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import json
 import os
+import math
 from datetime import datetime, timezone
 from itertools import product
 from pathlib import Path
@@ -349,7 +350,26 @@ def run_dream(window_steps: int = 200) -> Dict[str, Any]:
     baseline_pf = _simulate_pf(steps, entry_base, exit_base, flip_base)
 
     pf_local_data = _read_json(REPORTS / "pf_local.json") or {"pf": baseline_pf}
-    pf_local = float(pf_local_data.get("pf", baseline_pf))
+    try:
+        pf_local = float(pf_local_data.get("pf", baseline_pf))
+    except Exception:
+        pf_local = float("nan")
+    if not math.isfinite(pf_local):
+        pf_local = baseline_pf
+    pf_sample_count = 0
+    try:
+        pf_sample_count = int(pf_local_data.get("count", pf_local_data.get("total_trades", 0)))
+    except Exception:
+        pf_sample_count = 0
+    pf_summary_value = pf_local_data.get("pf")
+    pf_summary_note = None
+    try:
+        summary_float = float(pf_summary_value)
+    except Exception:
+        summary_float = float("nan")
+    if not math.isfinite(summary_float) or pf_sample_count <= 0:
+        pf_summary_value = None
+        pf_summary_note = "insufficient sample"
 
     best = max(pf_results, key=lambda x: x["pf_cf"], default=None)
     if best is None:
@@ -368,9 +388,9 @@ def run_dream(window_steps: int = 200) -> Dict[str, Any]:
     pf_adj_trend = {}
     slope_50 = _compute_pct_slope(equity_values, 50)
     slope_10 = _compute_pct_slope(equity_values, 10)
-    if slope_50 is not None:
+    if slope_50 is not None and math.isfinite(slope_50):
         pf_adj_trend["slope_50_pct"] = slope_50
-    if slope_10 is not None:
+    if slope_10 is not None and math.isfinite(slope_10):
         pf_adj_trend["slope_10_pct"] = slope_10
 
     council_summary = _load_council_delta()
@@ -436,7 +456,7 @@ def run_dream(window_steps: int = 200) -> Dict[str, Any]:
         "entry_base": entry_base,
         "exit_base": exit_base,
         "flip_base": flip_base,
-        "pf_local": pf_local,
+        "pf_local": pf_summary_value if pf_summary_note is None else None,
         "baseline_pf_cf": baseline_pf,
         "best_combo": best,
         "best_delta": delta,
@@ -496,6 +516,7 @@ def run_dream(window_steps: int = 200) -> Dict[str, Any]:
         "proposal_kind": proposal_kind,
         "gpt_text": gpt_text,
         "baseline_pf_adj": pf_local,
+        "pf_local": pf_summary_value if pf_summary_note is None else None,
         "proposals_scored": [
             {
                 "kind": item.get("kind"),
@@ -507,6 +528,8 @@ def run_dream(window_steps: int = 200) -> Dict[str, Any]:
             for item in scored_proposals
         ],
     }
+    if pf_summary_note:
+        dream_summary["note"] = pf_summary_note
     summary_path = REPORTS / "dream_summary.json"
     with open(summary_path, "w") as f:
         json.dump(dream_summary, f, indent=2)

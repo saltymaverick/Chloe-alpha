@@ -6,7 +6,7 @@ Fetches read-only OHLCV bars from friendly hosts with caching.
 from __future__ import annotations
 
 import json
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 from urllib import error, parse, request
@@ -204,16 +204,60 @@ def _fetch_from_sources(symbol: str, timeframe: str, limit: int) -> Tuple[List[D
     return [], {}
 
 
-def get_live_ohlcv(symbol: str, timeframe: str, limit: int = 300) -> List[Dict[str, Any]]:
+from datetime import timedelta
+
+
+def _timeframe_seconds(timeframe: str) -> Optional[int]:
+    try:
+        value = int(timeframe[:-1])
+        unit = timeframe[-1].lower()
+    except (ValueError, IndexError):
+        return None
+    multipliers = {"s": 1, "m": 60, "h": 3600, "d": 86400}
+    return value * multipliers.get(unit, 0) or None
+
+
+def _ensure_completed(rows: List[Dict[str, Any]], timeframe: str) -> List[Dict[str, Any]]:
+    if not rows:
+        return rows
+    seconds = _timeframe_seconds(timeframe)
+    if not seconds:
+        return rows
+    sorted_rows = sorted(rows, key=lambda x: x.get("ts", ""))
+    last = sorted_rows[-1]
+    ts_val = last.get("ts")
+    if not isinstance(ts_val, str):
+        return sorted_rows
+    try:
+        ts_dt = datetime.fromisoformat(ts_val.replace("Z", "+00:00"))
+    except ValueError:
+        return sorted_rows
+    # If the bar is still forming, drop it
+    if ts_dt + timedelta(seconds=seconds) > datetime.now(timezone.utc):
+        trimmed = sorted_rows[:-1]
+        return trimmed if trimmed else sorted_rows
+    return sorted_rows
+
+
+def get_live_ohlcv(
+    symbol: str,
+    timeframe: str,
+    limit: int = 300,
+    *,
+    no_cache: bool = False,
+) -> List[Dict[str, Any]]:
     rows, meta = _fetch_from_sources(symbol, timeframe, limit)
 
     if rows:
-        trimmed = rows[-limit:]
+        completed = _ensure_completed(rows, timeframe)
+        trimmed = completed[-limit:] if limit else completed
         save_live_cache(symbol, timeframe, trimmed, meta)
         return trimmed
 
-    cached = load_live_cache(symbol, timeframe)
-    if cached:
-        return cached[-limit:]
+    if not no_cache:
+        cached = load_live_cache(symbol, timeframe)
+        if cached:
+            completed_cached = _ensure_completed(cached, timeframe)
+            return completed_cached[-limit:]
     return []
 
