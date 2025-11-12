@@ -5,6 +5,7 @@ Alpha Chloe dashboard - hardened for canonical paths and safe refresh.
 from __future__ import annotations
 
 import json
+import math
 import os
 import time
 import subprocess
@@ -259,26 +260,24 @@ def render_heartbeat_and_activity() -> None:
 # ---------------------------------------------------------------------------
 
 def overview_tab() -> None:
+    # PF tile (chooser at top of overview)
+    try:
+        pf_obj = _choose_weighted_pf()
+        if not pf_obj or pf_obj.get('pf') is None:
+            st.metric('PF (Risk-weighted)', '—', help='insufficient sample (norm until live≥30)')
+        else:
+            sample = int(pf_obj.get('count', 0))
+            st.metric('PF (Risk-weighted)', f"{pf_obj['pf']:.4f}", help=f"sample={sample} (norm until live≥30)")
+    except Exception:
+        st.metric('PF (Risk-weighted)', '—', help='render error')
+    # PF tile (chooser at top of overview)
+    try:
+        pf_obj = _choose_weighted_pf()
+        if not pf_obj or pf_obj.get('pf') is None:
+        else:
+            sample = int(pf_obj.get('count', 0))
+    except Exception:
     st.header("Overview")
-
-    col_pf, col_pa, col_equity = st.columns(3)
-    pf_obj = _choose_weighted_pf()
-    if not isinstance(pf_obj, dict) or pf_obj.get("pf") is None:
-        pf_value_display = "—"
-        help_text = "insufficient sample (norm until live≥30)"
-    else:
-        try:
-            sample = int(pf_obj.get("count", 0))
-        except Exception:
-            sample = 0
-        pf_value = pf_obj.get("pf")
-        try:
-            pf_float = float(pf_value)
-            pf_value_display = f"{pf_float:.4f}"
-        except Exception:
-            pf_value_display = str(pf_value)
-        help_text = f"sample={sample} (norm until live≥30)"
-    col_pf.metric("PF (Risk-weighted)", pf_value_display, help=help_text)
 
     pa_status = load_json(REPORTS / "pa_status.json")
     governance_snapshot = load_json(REPORTS / "governance_snapshot.json") or {}
@@ -317,6 +316,21 @@ def overview_tab() -> None:
     pa_on = "ON" if policy_block.get("allow_pa") else "OFF"
     st.markdown(f"**Status:** REC: `{rec_display}` | SCI: `{sci_display}` | PA: `{pa_on}`")
 
+    pf_obj = _choose_weighted_pf()
+    col_pf, col_pa, col_equity = st.columns(3)
+    help_suffix = "norm until live≥30"
+    if not isinstance(pf_obj, dict) or pf_obj.get("pf") is None:
+    else:
+        try:
+            sample = int(pf_obj.get("count", 0) or 0)
+        except Exception:
+            sample = 0
+        pf_value = pf_obj.get("pf")
+        try:
+            pf_float = float(pf_value)
+            display_value = "∞" if math.isinf(pf_float) else f"{pf_float:.4f}"
+        except Exception:
+            display_value = str(pf_value)
     col_pa.metric("PA Armed", str(pa_status.get("armed", "N/A")) if pa_status else "N/A")
     col_equity.metric(
         f"Last Equity ({mode})",
