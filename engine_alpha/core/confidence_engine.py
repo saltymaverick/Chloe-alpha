@@ -75,11 +75,11 @@ def _load_gates_config() -> Dict[str, Any]:
         return {
             "entry_exit": {
                 "entry_min_conf": {
-                    "trend": 0.58,
-                    "chop": 0.64,
-                    "high_vol": 0.62,
+                    "trend": 0.66,
+                    "chop": 0.68,
+                    "high_vol": 0.67,
                 },
-                "exit_min_conf": 0.42,
+                "exit_min_conf": 0.32,
                 "reverse_min_conf": 0.55,
             }
         }

@@ -271,7 +271,7 @@ def _load_exit_config() -> Dict[str, float]:
     }
 
 
-def run_step(entry_min_conf: float = 0.58, exit_min_conf: float = 0.42, reverse_min_conf: float = 0.55):
+def run_step(entry_min_conf: float = 0.66, exit_min_conf: float = 0.32, reverse_min_conf: float = 0.55):
     exit_cfg = _load_exit_config()
     decay_bars = exit_cfg["DECAY_BARS"]
     take_profit_conf = exit_cfg["TAKE_PROFIT_CONF"]
@@ -283,6 +283,12 @@ def run_step(entry_min_conf: float = 0.58, exit_min_conf: float = 0.42, reverse_
     decision = decide(out["signal_vector"], out["raw_registry"])
     final = decision["final"]
     regime = decision["regime"]
+    
+    # Use regime-specific thresholds from decision.gates, with parameter as fallback
+    gates = decision.get("gates", {})
+    regime_entry_min_conf = gates.get("entry_min_conf", entry_min_conf)
+    gates_exit_min_conf = gates.get("exit_min_conf", exit_min_conf)
+    gates_reverse_min_conf = gates.get("reverse_min_conf", reverse_min_conf)
 
     pa_status = pa_evaluate(REPORTS / "pa_status.json")
     pa_mult = pa_rmult(REPORTS / "pa_status.json") if policy.get("allow_pa", True) else 1.0
@@ -299,7 +305,7 @@ def run_step(entry_min_conf: float = 0.58, exit_min_conf: float = 0.42, reverse_
     if policy.get("allow_opens", True):
         opened = open_if_allowed(final_dir=final["dir"],
                                  final_conf=final["conf"],
-                                 entry_min_conf=entry_min_conf,
+                                 entry_min_conf=regime_entry_min_conf,
                                  risk_mult=rmult)
         if opened:
             _annotate_last_open(float(pa_mult), adapter, rmult)
@@ -312,8 +318,8 @@ def run_step(entry_min_conf: float = 0.58, exit_min_conf: float = 0.42, reverse_
         opposite_dir = final["dir"] != 0 and final["dir"] != pos["dir"]
         take_profit = same_dir and final["conf"] >= take_profit_conf
         stop_loss = opposite_dir and final["conf"] >= stop_loss_conf
-        flip = (final["dir"] != 0 and final["dir"] != pos["dir"] and final["conf"] >= reverse_min_conf)
-        drop = (final["conf"] < exit_min_conf)
+        flip = (final["dir"] != 0 and final["dir"] != pos["dir"] and final["conf"] >= gates_reverse_min_conf)
+        drop = (final["conf"] < gates_exit_min_conf)
         decay = (pos["bars_open"] >= decay_bars)
 
         # PnL pct calculation summary (for run_step exits):
@@ -338,7 +344,7 @@ def run_step(entry_min_conf: float = 0.58, exit_min_conf: float = 0.42, reverse_
                 if open_if_allowed(
                     final_dir=final["dir"],
                     final_conf=final["conf"],
-                    entry_min_conf=entry_min_conf,
+                    entry_min_conf=regime_entry_min_conf,
                     risk_mult=rmult,
                 ):
                     _annotate_last_open(float(pa_mult), adapter, rmult)
@@ -368,8 +374,8 @@ def run_step(entry_min_conf: float = 0.58, exit_min_conf: float = 0.42, reverse_
 def run_step_live(symbol: str = "ETHUSDT",
                   timeframe: str = "1h",
                   limit: int = 200,
-                  entry_min_conf: float = 0.58,
-                  exit_min_conf: float = 0.42,
+                  entry_min_conf: float = 0.66,
+                  exit_min_conf: float = 0.32,
                   reverse_min_conf: float = 0.55,
                   bar_ts: str | None = None):
     exit_cfg = _load_exit_config()
@@ -383,6 +389,12 @@ def run_step_live(symbol: str = "ETHUSDT",
     decision = decide(out["signal_vector"], out["raw_registry"])
     final = decision["final"]
     regime = decision["regime"]
+    
+    # Use regime-specific thresholds from decision.gates, with parameter as fallback
+    gates = decision.get("gates", {})
+    regime_entry_min_conf = gates.get("entry_min_conf", entry_min_conf)
+    gates_exit_min_conf = gates.get("exit_min_conf", exit_min_conf)
+    gates_reverse_min_conf = gates.get("reverse_min_conf", reverse_min_conf)
 
     pa_status = pa_evaluate(REPORTS / "pa_status.json")
     pa_mult = pa_rmult(REPORTS / "pa_status.json") if policy.get("allow_pa", True) else 1.0
@@ -457,7 +469,7 @@ def run_step_live(symbol: str = "ETHUSDT",
         opened_local = open_if_allowed(
             final_dir=direction,
             final_conf=confidence,
-            entry_min_conf=entry_min_conf,
+            entry_min_conf=regime_entry_min_conf,
             risk_mult=rmult,
         )
         if not opened_local:
@@ -509,9 +521,9 @@ def run_step_live(symbol: str = "ETHUSDT",
         flip = (
             final["dir"] != 0
             and final["dir"] != live_pos["dir"]
-            and final["conf"] >= reverse_min_conf
+            and final["conf"] >= gates_reverse_min_conf
         )
-        drop = (final["conf"] < exit_min_conf)
+        drop = (final["conf"] < gates_exit_min_conf)
         decay = (live_pos["bars_open"] >= decay_bars)
         bars_open = live_pos.get("bars_open", 0)
 

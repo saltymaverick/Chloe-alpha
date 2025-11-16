@@ -1,4 +1,4 @@
 EXIT:
   DECAY_BARS: 6          # decay after ~6 bars (use 6–8 in live soak)
-  TAKE_PROFIT_CONF: 0.24 # take profit if same-dir & conf ≥ 0.24
+  TAKE_PROFIT_CONF: 0.72 # take profit if same-dir & conf ≥ 0.72
   STOP_LOSS_CONF:   0.12 # stop if opposite-dir & conf ≥ 0.12
