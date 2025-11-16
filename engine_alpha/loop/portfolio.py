@@ -48,6 +48,11 @@ def _correlation(symbol: str, other: str, corr_map: Dict[str, Any]) -> float:
     return float(corr_map.get(symbol, {}).get(other, 0.0))
 
 
+# PnL pct calculation summary (for portfolio closes):
+# - pct = dir * conf * 0.01 [direction * confidence * 0.01 scale factor]
+# - uses state["dir"] (position direction) and conf (confidence score) as proxy
+# - does NOT use entry_price/exit_price directly (this is what we will fix)
+# - scales confidence by 0.01 to convert to percentage approximation
 def _maybe_close(symbol: str, state: Dict[str, Any], conf: float, trades: List[Dict[str, float]]) -> bool:
     pnl = state["dir"] * conf * 0.01
     trades.append({"pct": pnl})

@@ -55,15 +55,55 @@ def open_if_allowed(final_dir: int, final_conf: float, entry_min_conf: float, ri
     return True
 
 
-def close_now(pct: float) -> None:
+# PnL pct calculation summary (for close_now):
+# - pct = price-based: (exit_price - entry_price) / entry_price * dir * 100.0
+# - uses entry_price from position and exit_price from latest bar (or provided)
+# - falls back to 0.0 if entry_price or exit_price is missing
+# - dir = +1 for LONG, -1 for SHORT (multiplies price change by direction)
+def close_now(pct: float = None, entry_price: float = None, exit_price: float = None, dir: int = None) -> None:
     """
-    PAPER close with provided pct P&L proxy.
+    PAPER close with price-based P&L calculation.
+    If entry_price and exit_price are provided, computes pct from actual price movement.
+    Falls back to provided pct parameter if prices are missing.
     """
-    from engine_alpha.loop.position_manager import clear_position
+    from engine_alpha.loop.position_manager import clear_position, get_open_position, get_live_position
+    
+    computed_pct = None
+    if entry_price is not None and exit_price is not None and dir is not None and entry_price > 0:
+        # Price-based calculation: (exit - entry) / entry * dir * 100
+        raw_change = (exit_price - entry_price) / entry_price
+        signed_change = raw_change * dir  # dir = +1 for LONG, -1 for SHORT
+        computed_pct = signed_change * 100.0
+    
+    # Fallback: try to get prices from position if not provided
+    if computed_pct is None:
+        pos = get_live_position() or get_open_position()
+        if pos and isinstance(pos, dict):
+            entry_from_pos = pos.get("entry_px")
+            dir_from_pos = pos.get("dir")
+            if entry_from_pos is not None and exit_price is not None and dir_from_pos is not None:
+                try:
+                    entry_val = float(entry_from_pos)
+                    dir_val = int(dir_from_pos)
+                    if entry_val > 0:
+                        raw_change = (exit_price - entry_val) / entry_val
+                        signed_change = raw_change * dir_val
+                        computed_pct = signed_change * 100.0
+                except (TypeError, ValueError):
+                    pass
+    
+    # Final fallback: use provided pct or 0.0
+    if computed_pct is None:
+        if pct is not None:
+            computed_pct = float(pct)
+        else:
+            computed_pct = 0.0
+            print("PNL-DEBUG: missing entry_price/exit_price, pct=0.0 fallback")
+    
     _append_trade({
         "ts": _now(),
         "type": "close",
-        "pct": float(pct),
+        "pct": computed_pct,
         "fee_bps": ACCOUNTING["taker_fee_bps"] * 2.0,
         "slip_bps": ACCOUNTING["slip_bps"]
     })

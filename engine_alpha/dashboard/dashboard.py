@@ -15,7 +15,23 @@ from typing import Any, Dict, List, Optional, Tuple
 
 import altair as alt
 import pandas as pd
-import streamlit as st
+
+try:
+    import streamlit as st
+except Exception:  # pragma: no cover - streamlit optional for headless runs
+    st = None  # type: ignore
+
+
+def _st_ready() -> bool:
+    """Return True when Streamlit is available and running inside a script context."""
+    if st is None:
+        return False
+    try:  # pragma: no cover - streamlit internals not available in tests
+        from streamlit.runtime.scriptrunner import get_script_run_ctx
+
+        return get_script_run_ctx() is not None
+    except Exception:
+        return True
 # @cursor-guard:pf-tile:v1
 # region pf-tile
 import os
@@ -76,7 +92,7 @@ def _choose_pf():
         }
     chosen["source"] = source
     if not chosen.get("updated_at"):
-        chosen["updated_at"] = datetime.utcnow().replace(microsecond=0).isoformat() + "Z"
+        chosen["updated_at"] = datetime.now(timezone.utc).replace(microsecond=0).isoformat()
     return chosen
 
 
@@ -106,7 +122,7 @@ def _pf_band(pf):
 
 
 def render_pf_tile():
-    if st is None:
+    if not _st_ready():
         return
     d = _choose_pf()
     pf, win, n, src, upd, dp = (
@@ -212,7 +228,7 @@ def _get_latest_mtime(paths):
 
 
 def render_pulse_indicator():
-    if st is None:
+    if not _st_ready():
         return
     mtime = _get_latest_mtime(_PULSE_PATHS)
     if not mtime:
@@ -322,7 +338,7 @@ def _normalize_cn(obj):
 
 
 def render_council_details():
-    if st is None:
+    if not _st_ready():
         return
     obj = _read_json_cn(_CN_PATH)
     data = _normalize_cn(obj) or {
@@ -411,11 +427,18 @@ def _fmt_ts_local_last(iso):
 def _normalize_trade(obj):
     if not isinstance(obj, dict):
         return None
-    side = obj.get("side") or obj.get("direction") or obj.get("type")
-    sym = obj.get("symbol") or obj.get("pair") or obj.get("market") or "—"
+    side = obj.get("side") or obj.get("direction") or obj.get("type") or ("LONG" if obj.get("dir",0)>=0 else "SHORT")
+    sym = obj.get("symbol") or obj.get("pair") or obj.get("market") or obj.get("asset") or "—"
     conf = obj.get("confidence") or obj.get("conf") or obj.get("score")
-    pnl = obj.get("pnl") or obj.get("pct_pnl") or obj.get("profit_pct") or obj.get("profit")
-    ts = obj.get("timestamp") or obj.get("time") or obj.get("updated_at")
+    pnl = (
+        obj.get("pnl")
+        or obj.get("pct_pnl")
+        or obj.get("profit_pct")
+        or obj.get("pct")
+        or obj.get("roe")
+        or obj.get("profit")
+    )
+    ts = obj.get("timestamp") or obj.get("time") or obj.get("updated_at") or obj.get("ts") or obj.get("ts")
     pf_win = obj.get("pf_window") or obj.get("window") or "local"
     reason = obj.get("reason") or obj.get("rationale") or None
     side = str(side).upper() if side else "—"
@@ -460,7 +483,7 @@ def _choose_last_signal():
 
 
 def render_last_signal():
-    if st is None:
+    if not _st_ready():
         return
     tr, ref = _choose_last_signal()
     with st.expander("Last Signal", expanded=False):
@@ -526,24 +549,75 @@ def _parse_ts(iso: str):
         return None
 
 
+def _extract_equity_point(row: Dict[str, Any]):
+    if not isinstance(row, dict):
+        return None
+    ts = _parse_ts(
+        row.get("timestamp") or row.get("updated_at") or row.get("ts") or row.get("time")
+        or row.get("ts")
+        or row.get("time")
+        or row.get("datetime")
+    )
+    eq = (
+        row.get("equity")
+        or row.get("value")
+        or row.get("balance")
+        or row.get("equity_after")
+        or row.get("balance_after")
+        or row.get("equity_adj")
+    )
+    if isinstance(eq, str):
+        try:
+            eq = float(eq)
+        except Exception:
+            eq = None
+    if ts and isinstance(eq, (int, float)):
+        return ts, float(eq)
+    return None
+
+
 def _load_equity_series():
     series: List[tuple[datetime.datetime, float]] = []
     for p in ("reports/equity_norm.json", "reports/equity_live.json"):
         obj = _read_json(p)
         if isinstance(obj, list) and obj:
             for row in obj:
-                ts = _parse_ts(row.get("timestamp") or row.get("updated_at"))
-                eq = row.get("equity")
-                if ts and isinstance(eq, (int, float)):
-                    series.append((ts, float(eq)))
+                point = _extract_equity_point(row)
+                if point:
+                    series.append(point)
             if series:
                 series.sort(key=lambda x: x[0])
                 return series
         elif isinstance(obj, dict) and obj:
-            ts = _parse_ts(obj.get("timestamp") or obj.get("updated_at"))
-            eq = obj.get("equity")
-            if ts and isinstance(eq, (int, float)):
-                return [(ts, float(eq))]
+            point = _extract_equity_point(obj)
+            if point:
+                return [point]
+            for key in ("series", "points", "data"):
+                payload = obj.get(key)
+                if isinstance(payload, list):
+                    extracted: List[tuple[datetime.datetime, float]] = []
+                    for row in payload:
+                        point = _extract_equity_point(row)
+                        if point:
+                            extracted.append(point)
+                    if extracted:
+                        extracted.sort(key=lambda x: x[0])
+                        return extracted
+
+    for p in (
+        "reports/equity_curve_norm.jsonl",
+        "reports/equity_curve_live.jsonl",
+        "reports/equity_curve.jsonl",
+    ):
+        rows = _read_jsonl(p, max_lines=20000)
+        extracted = []
+        for row in rows:
+            point = _extract_equity_point(row)
+            if point:
+                extracted.append(point)
+        if extracted:
+            extracted.sort(key=lambda x: x[0])
+            return extracted
 
     trades = _read_jsonl("reports/trades.jsonl", max_lines=20000)
     if not trades:
@@ -551,7 +625,7 @@ def _load_equity_series():
 
     tmp: List[tuple[datetime.datetime, float]] = []
     for t in trades:
-        ts = _parse_ts(t.get("timestamp") or t.get("time") or t.get("updated_at"))
+        ts = _parse_ts(t.get("timestamp") or t.get("time") or t.get("updated_at") or t.get("ts"))
         eq = t.get("equity_after") or t.get("balance_after")
         if ts and isinstance(eq, (int, float)):
             tmp.append((ts, float(eq)))
@@ -562,7 +636,7 @@ def _load_equity_series():
     equity = 10_000.0
     series = []
     for t in trades:
-        ts = _parse_ts(t.get("timestamp") or t.get("time") or t.get("updated_at"))
+        ts = _parse_ts(t.get("timestamp") or t.get("time") or t.get("updated_at") or t.get("ts"))
         if not ts:
             continue
         if "pct_pnl" in t and isinstance(t["pct_pnl"], (int, float)):
@@ -576,38 +650,82 @@ def _load_equity_series():
 
 
 def render_equity_chart():
-    if st is None:
+    if not _st_ready():
         return
     data = _load_equity_series()
     if not data:
         st.caption("Equity chart: no data yet.")
         return
+    rows = [{"timestamp": ts, "equity": eq} for ts, eq in data]
+    try:
+        import pandas as pd
 
-    import pandas as pd
-    import altair as alt
-
-    df = pd.DataFrame({"timestamp": [d[0] for d in data], "equity": [d[1] for d in data]})
-    if len(df) > 5000:
-        df = df.tail(5000)
-
-    y_min, y_max = float(df["equity"].min()), float(df["equity"].max())
-    pad = max(1.0, (y_max - y_min) * 0.05)
-    y_domain = [y_min - pad, y_max + pad]
-
-    chart = (
-        alt.Chart(df)
-        .mark_line()
-        .encode(
-            x=alt.X("timestamp:T", title="Time"),
-            y=alt.Y("equity:Q", title="Equity ($)", scale=alt.Scale(domain=y_domain)),
-            tooltip=[alt.Tooltip("timestamp:T"), alt.Tooltip("equity:Q", format=",.2f")],
-        )
-        .properties(height=240)
-        .interactive(bind_y=False)
-    )
-
-    st.altair_chart(chart, use_container_width=True)
+        df = pd.DataFrame(rows).sort_values("timestamp").set_index("timestamp")
+        st.line_chart(df["equity"])
+    except Exception:
+        st.line_chart([row["equity"] for row in rows])
 # endregion equity-chart
+
+# @cursor-guard:dashboard-safe:v1
+# region trade-activity-tile
+import os, json
+from datetime import datetime, timezone, timedelta
+try:
+    import streamlit as st
+except Exception:
+    st = None
+
+_TRADES_PATH = "reports/trades.jsonl"
+
+def _parse_ts_any(x):
+    if not x:
+        return None
+    s = str(x)
+    if s.endswith("Z"):
+        s = s[:-1] + "+00:00"
+    try:
+        return datetime.fromisoformat(s).astimezone(timezone.utc)
+    except Exception:
+        return None
+
+def _summarize_trades():
+    if not os.path.exists(_TRADES_PATH):
+        return {"total":0,"opens":0,"closes":0,"last":None,"t24":0,"t6":0}
+    with open(_TRADES_PATH,"r",encoding="utf-8") as f:
+        lines=[ln.strip() for ln in f if ln.strip()]
+    now = datetime.now(timezone.utc)
+    opens=closes=0
+    last=None
+    t24=t6=0
+    for ln in lines:
+        try:
+            t=json.loads(ln)
+        except Exception:
+            continue
+        ts=_parse_ts_any(t.get("timestamp") or t.get("time") or t.get("ts"))
+        typ=str(t.get("type","")).lower()
+        if typ=="open":
+            opens+=1
+        if typ=="close":
+            closes+=1
+        if ts:
+            if (last is None) or (ts>last):
+                last=ts
+            if ts>=now-timedelta(hours=24):
+                t24+=1
+            if ts>=now-timedelta(hours=6):
+                t6 +=1
+    return {"total":len(lines),"opens":opens,"closes":closes,"last":last,"t24":t24,"t6":t6}
+
+def render_trade_activity_tile():
+    if st is None:
+        return
+    s=_summarize_trades()
+    st.subheader("Trade Activity")
+    last = s["last"].isoformat(timespec="minutes") if s["last"] else "—"
+    st.markdown(f"**Total:** {s['total']}  |  **24h:** {s['t24']}  |  **6h:** {s['t6']}")
+    st.caption(f"Opens: {s['opens']} • Closes: {s['closes']} • Last: {last}")
+# endregion trade-activity-tile
 # @cursor-guard:dashboard-safe:v1
 # region loop-health-tile
 
@@ -677,7 +795,7 @@ def _choose_loop_health():
         n = _normalize_lh(j)
         if n:
             if not n.get("updated_at"):
-                n["updated_at"] = datetime.utcnow().replace(microsecond=0).isoformat() + "Z"
+                n["updated_at"] = datetime.now(timezone.utc).replace(microsecond=0).isoformat()
             return n
     return {"rec": "UNKNOWN", "sci": None, "pa_on": False, "errors": None, "updated_at": None}
 
@@ -697,7 +815,7 @@ def _to_local_min_lh(iso):
 
 
 def render_loop_health_tile():
-    if st is None:
+    if not _st_ready():
         return
     d = _choose_loop_health()
     rec, sci, pa_on, errs, upd = d["rec"], d["sci"], d["pa_on"], d["errors"], d["updated_at"]
@@ -752,7 +870,7 @@ def _choose_bias():
         n = _normalize_bias(j)
         if n:
             if not n.get("updated_at"):
-                n["updated_at"] = datetime.utcnow().replace(microsecond=0).isoformat() + "Z"
+                n["updated_at"] = datetime.now(timezone.utc).replace(microsecond=0).isoformat()
             return n
     return {"bias": None, "updated_at": None}
 
@@ -782,7 +900,7 @@ def _to_local_min_bias(iso):
 
 
 def render_bias_tile():
-    if st is None:
+    if not _st_ready():
         return
     d = _choose_bias()
     v, upd = d.get("bias"), d.get("updated_at")
@@ -836,7 +954,7 @@ def _choose_confidence():
         n = _normalize_conf(j)
         if n:
             if not n.get("updated_at"):
-                n["updated_at"] = datetime.utcnow().replace(microsecond=0).isoformat() + "Z"
+                n["updated_at"] = datetime.now(timezone.utc).replace(microsecond=0).isoformat()
             return n
     return {"confidence": None, "updated_at": None}
 
@@ -866,7 +984,7 @@ def _to_local_min_conf(iso):
 
 
 def render_confidence_tile():
-    if st is None:
+    if not _st_ready():
         return
     d = _choose_confidence()
     v, upd = d.get("confidence"), d.get("updated_at")
@@ -1154,6 +1272,10 @@ def overview_tab() -> None:
     # region last-signal
     render_last_signal()
     # endregion last-signal
+    # @cursor-guard:dashboard-safe:v1
+    # region trade-activity-tile
+    render_trade_activity_tile()
+    # endregion trade-activity-tile
 
     col_pa, col_equity = st.columns(2)
 
@@ -1534,3 +1656,4 @@ def main() -> None:
 
 if __name__ == "__main__" and os.getenv("CHLOE_DASH_HEALTHCHECK") != "1":
     main()
+

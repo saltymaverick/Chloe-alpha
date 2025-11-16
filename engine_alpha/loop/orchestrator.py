@@ -19,6 +19,7 @@ def _load_json_rel(name: str):
     return None
 
 import math
+import os
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, Tuple
@@ -93,6 +94,29 @@ def _load_weighted_pf() -> Tuple[float | None, int, str]:
     return pf_value, max(0, count_int), PF_LEGACY_PATH.name if pf_value is not None else ""
 
 
+def _count_closed_trades() -> int:
+    """Count total number of closed trades in trades.jsonl."""
+    if not TRADES_PATH.exists():
+        return 0
+    count = 0
+    try:
+        raw_lines = TRADES_PATH.read_text().splitlines()
+    except Exception:
+        return 0
+    for raw in raw_lines:
+        raw = raw.strip()
+        if not raw:
+            continue
+        try:
+            trade = json.loads(raw)
+        except Exception:
+            continue
+        event = str(trade.get("type") or trade.get("event") or "").lower()
+        if event == "close":
+            count += 1
+    return count
+
+
 def _loss_streak() -> int:
     if not TRADES_PATH.exists():
         return 0
@@ -158,6 +182,38 @@ def _eval_policy() -> Dict[str, Any]:
     allow_pa = bool(policy_eval.get("allow_pa", False)) and risk_ok
     reason = policy_eval.get("reason", "paper-only")
     inputs_override = policy_eval.get("inputs", {})
+    
+    # PAPER-mode override: allow opens when there are no closed trades yet
+    # (unless in a hard-block mode; risk_ok is respected but None risk_band is acceptable for fresh reset)
+    closed_trades = _count_closed_trades()
+    hard_block_modes = {"PAUSE", "BLOCK", "HALT"}
+    is_paper_mode = True  # This orchestrator is paper-only per module comment
+    risk_ok_or_unset = risk_ok or risk_band is None  # Allow if risk_ok OR risk_band not yet set (fresh reset)
+    if is_paper_mode and closed_trades == 0 and recommendation not in hard_block_modes and risk_ok_or_unset:
+        allow_opens = True
+        print("POLICY-DEBUG: forcing allow_opens=True for fresh PAPER reset (0 closes).")
+    
+    # PAPER-mode override: allow cautious trading even when risk_band=C or PF<1.0
+    # (unless in a hard-block mode; keep risk_band and mult as computed, keep allow_pa unchanged)
+    risk_drawdown = risk.get("drawdown")
+    risk_drawdown_value = float(risk_drawdown) if isinstance(risk_drawdown, (int, float)) else None
+    pf_value = weighted_pf if weighted_pf is not None else pf_local_value
+    dd_value = risk_drawdown_value if risk_drawdown_value is not None else 0.0
+    if is_paper_mode and recommendation not in hard_block_modes:
+        allow_opens = True
+        print("POLICY-DEBUG: PAPER override: allow_opens=True despite band=%s PF=%s dd=%s" % (risk_band, pf_value, dd_value))
+    
+    # PAPER-mode manual override: FORCE_PAPER_OPENS
+    try:
+        force_opens = os.getenv("FORCE_PAPER_OPENS", "0") == "1"
+    except Exception:
+        force_opens = False
+    
+    # Only apply in PAPER mode, and only if REC is not a hard-block state
+    if is_paper_mode and force_opens:
+        if recommendation not in hard_block_modes:
+            allow_opens = True
+            print(f"POLICY-DEBUG: FORCE_PAPER_OPENS=1 -> allow_opens=True in PAPER mode (rec={recommendation}, band={risk_band})")
 
     payload = {
         "ts": _now(),
