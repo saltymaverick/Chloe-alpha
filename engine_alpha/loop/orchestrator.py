@@ -50,7 +50,10 @@ def _read_json(path: Path) -> Dict[str, Any]:
     if not path.exists():
         return {}
     try:
-        return json.loads(path.read_text())
+        content = path.read_text().strip()
+        if not content:
+            return {}
+        return json.loads(content)
     except Exception:
         return {}
 

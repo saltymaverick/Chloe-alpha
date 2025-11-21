@@ -1,0 +1,17 @@
+{
+  "timestamp": "2025-11-17T05:24:01.973270+00:00",
+  "recent_trades": {
+    "count": 25,
+    "pf": 1.220530972877913,
+    "avg_win": 0.2858075885523405,
+    "avg_loss": -0.3278332405033534,
+    "wins": 14,
+    "losses": 10
+  },
+  "council_summary": {
+    "total_events": 0,
+    "regime_counts": {},
+    "bucket_counts": {}
+  },
+  "loop_health": {}
+}

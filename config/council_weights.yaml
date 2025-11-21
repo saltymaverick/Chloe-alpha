@@ -1,0 +1,45 @@
+# Council Weights Configuration - Phase 50
+# Default council weights per regime for offline learning experiments.
+#
+# SAFETY: This file is used for offline learning experiments only.
+# Live trading uses these weights only if explicitly configured.
+# All learning experiments are isolated in backtests.
+
+council_weights:
+  chop:
+    momentum: 0.15
+    meanrev: 0.30
+    flow: 0.30
+    positioning: 0.10
+    timing: 0.15
+
+  trend:
+    momentum: 0.35
+    meanrev: 0.10
+    flow: 0.25
+    positioning: 0.20
+    timing: 0.10
+
+  high_vol:
+    momentum: 0.20
+    meanrev: 0.20
+    flow: 0.30
+    positioning: 0.10
+    timing: 0.20
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

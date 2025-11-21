@@ -1,0 +1,46 @@
+# Council Weights Configuration - Phase 50
+# Regime-specific weights for council aggregation
+# These weights determine how much each bucket (momentum, meanrev, flow, positioning, timing)
+# contributes to the final council decision in each market regime.
+#
+# Safety: This file is used for offline learning experiments. Live trading uses these weights
+# only if explicitly configured. Defaults are hardcoded in confidence_engine.py as fallback.
+
+council_weights:
+  chop:
+    momentum: 0.15
+    meanrev: 0.30
+    flow: 0.30
+    positioning: 0.10
+    timing: 0.15
+
+  trend:
+    momentum: 0.40
+    meanrev: 0.10
+    flow: 0.25
+    positioning: 0.15
+    timing: 0.10
+
+  high_vol:
+    momentum: 0.25
+    meanrev: 0.10
+    flow: 0.40
+    positioning: 0.10
+    timing: 0.15
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

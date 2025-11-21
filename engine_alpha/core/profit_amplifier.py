@@ -84,9 +84,9 @@ def _load_gates() -> Dict[str, Any]:
     # Defaults
     return {
         "entry_exit": {
-            "entry_min_conf": {"trend": 0.66, "chop": 0.68, "high_vol": 0.67},
-            "exit_min_conf": 0.32,
-            "reverse_min_conf": 0.55,
+            "entry_min_conf": {"trend": 0.70, "chop": 0.72, "high_vol": 0.71},
+            "exit_min_conf": 0.30,
+            "reverse_min_conf": 0.60,
         },
         "profit_amplifier": {
             "arm_gate": {"pf_local": 1.05, "trades": 20},

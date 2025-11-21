@@ -56,12 +56,12 @@ def _load_gates() -> Dict[str, float]:
         data = yaml.safe_load(cfg_path.read_text()) or {}
         entry = data.get("entry_exit", {}).get("entry_min_conf", {})
         return {
-            "trend": float(entry.get("trend", 0.66)),
-            "chop": float(entry.get("chop", 0.68)),
-            "high_vol": float(entry.get("high_vol", 0.67)),
+            "trend": float(entry.get("trend", 0.70)),
+            "chop": float(entry.get("chop", 0.72)),
+            "high_vol": float(entry.get("high_vol", 0.71)),
         }
     except Exception:
-        return {"trend": 0.66, "chop": 0.68, "high_vol": 0.67}
+        return {"trend": 0.70, "chop": 0.72, "high_vol": 0.71}
 
 
 def _load_biases() -> Dict[str, List[float]]:
