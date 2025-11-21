@@ -6,3 +6,4 @@ data/ohlcv/
 *.jsonl
 # editor junk
 .vscode/
+.env
