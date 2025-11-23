@@ -14,7 +14,7 @@ from engine_alpha.signals.signal_processor import get_signal_vector, get_signal_
 from engine_alpha.core.confidence_engine import decide, COUNCIL_WEIGHTS, apply_bucket_mask, REGIME_BUCKET_MASK
 from engine_alpha.core.paths import REPORTS, CONFIG
 from engine_alpha.data.live_prices import get_live_ohlcv
-from engine_alpha.core.regime import classify_regime, confirm_trend
+from engine_alpha.core.regime import classify_regime
 from engine_alpha.core.profit_amplifier import evaluate as pa_evaluate, risk_multiplier as pa_rmult
 from engine_alpha.core.risk_adapter import evaluate as risk_eval
 from engine_alpha.loop.execute_trade import open_if_allowed, close_now
@@ -36,12 +36,64 @@ EQUITY_LIVE_PATH = REPORTS / "equity_live.json"
 EQUITY_CURVE_LIVE_PATH = REPORTS / "equity_curve_live.jsonl"
 EQUITY_CURVE_NORM_PATH = REPORTS / "equity_curve_norm.jsonl"
 
-# Phase 52: Chop Stabilization - PAPER mode defaults
+# Phase: Stabilization & Realism - Unified code path for all modes
 IS_PAPER_MODE = os.getenv("MODE", "PAPER").upper() == "PAPER"
-MIN_CONF_LIVE_DEFAULT = 0.60 if IS_PAPER_MODE else 0.55  # Paper default; live may override via env
+# Base live min confidence (global)
+MIN_CONF_LIVE_DEFAULT = 0.55
 MIN_CONF_LIVE = float(os.getenv("MIN_CONF_LIVE", MIN_CONF_LIVE_DEFAULT))
 
-NEUTRAL_THRESHOLD_DEFAULT = 0.40 if IS_PAPER_MODE else 0.30  # Phase 52: Softer neutral zone in PAPER
+# -----------------------------------------------------------------------------
+# Entry threshold config (per-regime floors, tuned via tools/threshold_tuner.py)
+# -----------------------------------------------------------------------------
+
+ENTRY_THRESHOLDS_DEFAULT: dict[str, float] = {
+    "trend_down": 0.50,
+    "high_vol": 0.55,
+    "trend_up": 0.60,
+    "chop": 0.65,
+}
+
+
+def _load_entry_thresholds() -> dict[str, float]:
+    """
+    Load per-regime entry thresholds from config/entry_thresholds.json.
+
+    Falls back to ENTRY_THRESHOLDS_DEFAULT on missing/parse error.
+    """
+    try:
+        cfg_path = (
+            Path(__file__)
+            .resolve()
+            .parents[2]
+            / "config"
+            / "entry_thresholds.json"
+        )
+    except Exception:
+        # Very defensive: just return defaults
+        return dict(ENTRY_THRESHOLDS_DEFAULT)
+
+    if not cfg_path.exists():
+        return dict(ENTRY_THRESHOLDS_DEFAULT)
+
+    try:
+        raw = json.loads(cfg_path.read_text())
+        merged: dict[str, float] = dict(ENTRY_THRESHOLDS_DEFAULT)
+        for key, value in raw.items():
+            try:
+                merged[key] = float(value)
+            except (TypeError, ValueError):
+                # Ignore non-numeric values
+                continue
+        return merged
+    except Exception:
+        # On any parse error, fall back to defaults
+        return dict(ENTRY_THRESHOLDS_DEFAULT)
+
+
+_ENTRY_THRESHOLDS: dict[str, float] = _load_entry_thresholds()
+
+# Unified neutral zone threshold (all modes use same value)
+NEUTRAL_THRESHOLD_DEFAULT = 0.25  # Lowered from 0.30 to reduce false neutralizations
 NEUTRAL_THRESHOLD = float(os.getenv("COUNCIL_NEUTRAL_THRESHOLD", str(NEUTRAL_THRESHOLD_DEFAULT)))
 
 MIN_HOLD_BARS_LIVE_DEFAULT = 4 if IS_PAPER_MODE else 2  # Phase 52: Longer min-hold in PAPER
@@ -84,6 +136,54 @@ def _count_lines(path: Path) -> int:
             return sum(1 for _ in handle)
     except Exception:
         return 0
+
+
+def regime_allows_entry(regime: str) -> bool:
+    """
+    Controls whether we're willing to open a trade in a given regime.
+
+    LIVE/PAPER: only trend_down / high_vol.
+    BACKTEST (when BACKTEST_FREE_REGIME=1): allow all regimes for debugging/tuning.
+    """
+    # Backtest override
+    if os.getenv("BACKTEST_FREE_REGIME") == "1":
+        return True
+    
+    # Live/PAPER behavior
+    return regime in ("trend_down", "high_vol")
+
+
+def compute_entry_min_conf(regime: str, risk_band: str | None) -> float:
+    """
+    Compute effective entry minimum confidence based on:
+
+    - Regime floor from _ENTRY_THRESHOLDS.
+    - Risk band adjustments:
+        A: +0.00
+        B: +0.03 (more conservative)
+        C: +0.05 (most conservative)
+    - Clamped to [0.35, 0.90].
+
+    Returned value is rounded to 2 decimals.
+    """
+    base = _ENTRY_THRESHOLDS.get(regime, ENTRY_THRESHOLDS_DEFAULT["chop"])
+
+    if risk_band == "B":
+        base += 0.03
+    elif risk_band == "C":
+        base += 0.05
+
+    # Clamp
+    if base < 0.35:
+        base = 0.35
+    if base > 0.90:
+        base = 0.90
+
+    return round(base, 2)
+
+
+# Removed unused _compute_entry_min_conf() function - dead code
+# Use compute_entry_min_conf() instead (line 152)
 
 
 def _now():
@@ -346,7 +446,7 @@ def run_step(entry_min_conf: float = 0.70, exit_min_conf: float = 0.30, reverse_
     is_paper_mode = True  # run_step() is PAPER mode
     if is_paper_mode and adapter_band == "C":
         effective_entry_min_conf = max(0.0, regime_entry_min_conf - 0.03)
-        print(f"ENTRY-DEBUG: PAPER band=C using softened entry_min_conf={effective_entry_min_conf:.4f} (final_conf={final['conf']:.4f})")
+        print(f"ENTRY-DEBUG: PAPER band=C using softened entry_min_conf={effective_entry_min_conf:.2f} (final_conf={final['conf']:.2f})")
 
     opened = False
     if policy.get("allow_opens", True):
@@ -355,7 +455,9 @@ def run_step(entry_min_conf: float = 0.70, exit_min_conf: float = 0.30, reverse_
                                  entry_min_conf=effective_entry_min_conf,
                                  risk_mult=rmult,
                                  regime=regime,  # Pass regime for observability
-                                 risk_band=adapter_band)  # Pass risk_band for observability
+                                 risk_band=adapter_band,  # Pass risk_band for observability
+                                 symbol=symbol,
+                                 timeframe=timeframe)
         if opened:
             _annotate_last_open(float(pa_mult), adapter, rmult)
 
@@ -404,6 +506,8 @@ def run_step(entry_min_conf: float = 0.70, exit_min_conf: float = 0.30, reverse_
                     risk_mult=rmult,
                     regime=regime,  # Pass regime for observability
                     risk_band=adapter_band,  # Pass risk_band for observability
+                    symbol=symbol,
+                    timeframe=timeframe,
                 ):
                     _annotate_last_open(float(pa_mult), adapter, rmult)
 
@@ -435,9 +539,28 @@ def run_step_live(symbol: str = "ETHUSDT",
                   entry_min_conf: float = 0.70,
                   exit_min_conf: float = 0.30,
                   reverse_min_conf: float = 0.60,
-                  bar_ts: str | None = None):
+                  bar_ts: str | None = None,
+                  now: Optional[datetime] = None):
+    """
+    Run one step of the trading loop.
+    
+    Args:
+        symbol: Trading symbol (e.g., "ETHUSDT")
+        timeframe: Timeframe (e.g., "1h")
+        limit: Number of bars to fetch for signals
+        entry_min_conf: Minimum confidence for entry (legacy, now computed internally)
+        exit_min_conf: Minimum confidence for exit
+        reverse_min_conf: Minimum confidence for reversal
+        bar_ts: Bar timestamp string (for logging)
+        now: Current time as datetime (for cooldown/guardrails). If None, uses datetime.utcnow()
+    """
     # Phase 51: Anti-Thrash Guardrails - Reset per-bar state
     global _LAST_BAR_STATE
+    
+    # Use provided now or current UTC time
+    if now is None:
+        now = datetime.now(timezone.utc)
+    
     current_bar_ts = bar_ts or _now()
     if _LAST_BAR_STATE.get("bar_ts") != current_bar_ts:
         # New bar → reset per-bar state
@@ -445,7 +568,7 @@ def run_step_live(symbol: str = "ETHUSDT",
         _LAST_BAR_STATE["opened_this_bar"] = False
     
     # Prune old bad exits (older than BAD_EXIT_WINDOW_SECONDS)
-    now_dt = datetime.now(timezone.utc)
+    now_dt = now
     recent_bad_exits = [
         exit_ts for exit_ts in _LAST_BAR_STATE.get("recent_bad_exits", [])
         if (now_dt - exit_ts).total_seconds() <= _BAD_EXIT_WINDOW_SECONDS
@@ -464,48 +587,46 @@ def run_step_live(symbol: str = "ETHUSDT",
     rows = get_live_ohlcv(symbol, timeframe, limit=limit, no_cache=True)
     # Use last 20 bars for regime detection (or all if fewer available)
     window = rows[-20:] if len(rows) >= 20 else rows
+    
+    # Use full regime classifier for all modes (LAB/BACKTEST now matches LIVE/PAPER)
+    DEBUG_REGIME = os.getenv("DEBUG_REGIME", "0") == "1"
+    DEBUG_SIGNALS = os.getenv("DEBUG_SIGNALS", "0") == "1"
+    
     regime_info = classify_regime(window)
     price_based_regime = regime_info.get("regime", "chop")
     regime_metrics = regime_info.get("metrics", {})
+    if DEBUG_REGIME:
+        print(f"REGIME-DEBUG: price_based_regime={price_based_regime} metrics={regime_metrics}")
     
     # Extract volatility metrics for Phase 54
     atr_pct = regime_metrics.get("atr_pct", 0.0)
     vol_expansion = regime_metrics.get("vol_expansion", 1.0)
     slope = regime_metrics.get("slope", 0.0)
     
-    # Debug logging for regime detection
-    DEBUG_REGIME = os.getenv("DEBUG_REGIME", "0") == "1"
-    DEBUG_SIGNALS = os.getenv("DEBUG_SIGNALS", "0") == "1"
-    if DEBUG_REGIME:
-        print(f"REGIME-DEBUG: price_based_regime={price_based_regime} metrics={regime_metrics}")
-    
-    # Phase 57: Trend Confirmation Windows (PAPER only)
-    regime_confirmed = True
-    regime_confirm_detail = {}
-    if IS_PAPER_MODE and price_based_regime in ("trend_up", "trend_down"):
-        regime_confirmed, regime_confirm_detail = confirm_trend(window, price_based_regime, regime_metrics)
-        if DEBUG_REGIME:
-            print(f"REGIME-CONFIRM: regime={price_based_regime} confirmed={regime_confirmed} detail={regime_confirm_detail}")
+    # Phase: Stabilization - Unified regime classification (no special modes)
+    # Regime is determined purely from price data, same for all modes
 
     out = get_signal_vector_live(symbol=symbol, timeframe=timeframe, limit=limit)
-    decision = decide(out["signal_vector"], out["raw_registry"])
+    # Pass price-based regime to decide() so council aggregation uses correct regime
+    decision = decide(out["signal_vector"], out["raw_registry"], regime_override=price_based_regime)
     final = decision["final"]
-    # Override regime from decide() with price-based regime
+    # Use price-based regime (already passed to decide(), but keep for consistency)
     regime = price_based_regime
     
-    # Phase 52.5: Map panic_down to trend_down for council weights lookup
+    # Phase 52.5: Map panic_down to trend_down for weights lookup
+    # Note: We use REGIME_BUCKET_WEIGHTS, not COUNCIL_WEIGHTS (legacy)
     regime_for_weights = "trend_down" if regime == "panic_down" else regime
-    # Fallback to "trend" if regime_for_weights is "trend_up" or "trend_down" and not in COUNCIL_WEIGHTS
-    if regime_for_weights not in COUNCIL_WEIGHTS:
-        if regime_for_weights in ("trend_up", "trend_down"):
-            regime_for_weights = "trend"
-        else:
-            regime_for_weights = "chop"
     
     # Phase 52: Chop Stabilization - Adjust TP/SL thresholds in chop regime (PAPER only)
     if IS_PAPER_MODE and regime == "chop":
         take_profit_conf = 0.60  # Slightly easier to take profit
         stop_loss_conf = 0.50     # More confident before calling it a loss
+    elif IS_PAPER_MODE and regime in ("trend_down", "high_vol"):
+        # Lower TP threshold for trend_down/high_vol to increase TP/SL ratio vs drop/decay
+        # Entry thresholds are 0.52-0.58, so TP at 0.60 is more achievable (only 0.02-0.08 increase needed)
+        # This makes TP more likely to fire before drop/decay, increasing meaningful trades
+        take_profit_conf = 0.60  # Lower from 0.65 to 0.60 (matching chop regime) to capture more TP exits
+        stop_loss_conf = stop_loss_conf_base  # Keep SL threshold unchanged
     else:
         take_profit_conf = take_profit_conf_base
         stop_loss_conf = stop_loss_conf_base
@@ -521,71 +642,88 @@ def run_step_live(symbol: str = "ETHUSDT",
     # - final_conf = clip(abs(final_score), 0, 1)
     # - Note: DIR_THRESHOLD (0.05) is used at bucket level, not for final_dir (any non-zero final_score → non-zero dir)
     
-    # Compute final_score for neutral zone logic and debug logging
-    buckets = decision.get("buckets", {})
-    base_weights = COUNCIL_WEIGHTS.get(regime_for_weights, COUNCIL_WEIGHTS["chop"])
-    
-    # Phase 55: Apply bucket mask and renormalize (PAPER only)
-    # This masks out inappropriate buckets (e.g., meanrev in trends, momentum in chop)
-    # Phase 55.2: Pass bucket_dirs for direction-filtered flow in trends
-    bucket_dirs_for_mask = {name: buckets.get(name, {}).get("dir", 0) for name in ["momentum", "meanrev", "flow", "positioning", "timing", "sentiment", "onchain_flow"]}
-    weights = apply_bucket_mask(base_weights, regime, IS_PAPER_MODE, bucket_dirs=bucket_dirs_for_mask)
-    
-    # Phase 55: Debug logging for bucket masking
-    if IS_PAPER_MODE and DEBUG_SIGNALS:
-        mask = REGIME_BUCKET_MASK.get(regime, None)
-        if mask is not None:
-            active_buckets = [name for name in weights.keys() if weights.get(name, 0.0) > 0]
-            print(f"SIGNAL-MASK: regime={regime} active_buckets={active_buckets}")
+    # Use base result from decide() (already computed with REGIME_BUCKET_WEIGHTS)
+    # Then apply Phase 54 regime-aware bucket emphasis (PAPER only) as a post-processing step
+    base_final = final  # From decide(): {"dir": ..., "conf": ..., "score": ...}
+    base_final_score = base_final.get("score", 0.0)
     
     # Phase 54: Regime-aware bucket emphasis (PAPER only)
-    # Apply small multipliers to bucket weights based on regime, without changing base weights file
-    # Note: This is applied AFTER masking, so adjustments only affect active buckets
-    bucket_weight_adj = {name: 1.0 for name in weights.keys()}
+    # Apply small multipliers to bucket weights based on regime, then recompute final_score
+    # This is a post-processing step that adjusts the base aggregation from decide()
+    bucket_debug = []  # Initialize for debug logging
     if IS_PAPER_MODE:
-        if regime_for_weights in ("trend_down", "trend_up"):
-            # In trends, emphasize momentum + flow + positioning slightly
+        from engine_alpha.core.confidence_engine import REGIME_BUCKET_WEIGHTS, BUCKET_ORDER
+        buckets = decision.get("buckets", {})
+        
+        # Extract bucket dirs/confs for Phase 54 adjustments
+        bucket_dirs = {name: buckets.get(name, {}).get("dir", 0) for name in BUCKET_ORDER}
+        bucket_confs = {name: buckets.get(name, {}).get("conf", 0.0) for name in BUCKET_ORDER}
+        
+        # Phase 54: Regime-aware bucket emphasis multipliers
+        bucket_weight_adj = {name: 1.0 for name in BUCKET_ORDER}
+        if regime in ("trend_down", "trend_up"):
             bucket_weight_adj["momentum"] = 1.10
             bucket_weight_adj["flow"] = 1.05
             bucket_weight_adj["positioning"] = 1.05
-            # Note: meanrev is already masked out in trends, so this adjustment won't apply
-        elif regime_for_weights == "chop":
-            # In chop, meanrev is king, flow less useful
+        elif regime == "chop":
             bucket_weight_adj["meanrev"] = 1.10
             bucket_weight_adj["flow"] = 0.90
-            # Note: momentum is already masked out in chop, so this adjustment won't apply
-    
-    # Compute final_score using same logic as _compute_council_aggregation, with regime-aware adjustments
-    # Phase 54: Include sentiment and onchain_flow buckets (they'll have 0 weight until enabled)
-    final_score = 0.0
-    bucket_debug_info = []
-    bucket_debug = []  # For council perf logging
-    for bucket_name in ["momentum", "meanrev", "flow", "positioning", "timing", "sentiment", "onchain_flow"]:
-        bucket_data = buckets.get(bucket_name, {})
-        bucket_dir = bucket_data.get("dir", 0)
-        bucket_conf = bucket_data.get("conf", 0.0)
-        # Get weight from masked weights (already renormalized)
-        base_weight = weights.get(bucket_name, 0.0)
-        # Apply regime-aware adjustment (PAPER mode only, only for active buckets)
-        # Note: sentiment and onchain_flow will have 0 weight until enabled, so adjustments won't affect them
-        adjusted_weight = base_weight * bucket_weight_adj.get(bucket_name, 1.0)
-        final_score += adjusted_weight * bucket_dir * bucket_conf
-        bucket_debug_info.append((bucket_name, bucket_dir, bucket_conf, adjusted_weight))
-        bucket_debug.append({
-            "name": bucket_name,
-            "dir": bucket_dir,
-            "conf": float(bucket_conf),
-            "weight": float(adjusted_weight),
-        })
+        
+        # Recompute final_score with Phase 54 adjustments
+        regime_weights = REGIME_BUCKET_WEIGHTS.get(regime, REGIME_BUCKET_WEIGHTS.get("chop", {}))
+        weighted_score = 0.0
+        weight_sum = 0.0
+        
+        for bucket_name in BUCKET_ORDER:
+            bucket_dir = bucket_dirs.get(bucket_name, 0)
+            bucket_conf = bucket_confs.get(bucket_name, 0.0)
+            base_weight = float(regime_weights.get(bucket_name, 0.0))
+            adjusted_weight = base_weight * bucket_weight_adj.get(bucket_name, 1.0)
+            
+            if bucket_dir == 0 or adjusted_weight <= 0.0 or bucket_conf <= 0.0:
+                continue
+            
+            score = bucket_dir * bucket_conf
+            weighted_score += adjusted_weight * score
+            weight_sum += adjusted_weight
+            bucket_debug.append({
+                "name": bucket_name,
+                "dir": int(bucket_dir),
+                "conf": float(bucket_conf),
+                "weight": float(adjusted_weight),
+            })
+        
+        if weight_sum > 0.0:
+            base_final_score = weighted_score / weight_sum
+    else:
+        # In LIVE mode, use buckets from decide() for debug logging
+        from engine_alpha.core.confidence_engine import BUCKET_ORDER
+        buckets = decision.get("buckets", {})
+        for bucket_name in BUCKET_ORDER:
+            bucket_data = buckets.get(bucket_name, {})
+            bucket_dir = bucket_data.get("dir", 0)
+            bucket_conf = bucket_data.get("conf", 0.0)
+            if bucket_dir != 0 and bucket_conf > 0.0:
+                bucket_debug.append({
+                    "name": bucket_name,
+                    "dir": int(bucket_dir),
+                    "conf": float(bucket_conf),
+                    "weight": 0.0,  # Not used in LIVE mode
+                })
     
     # Apply neutral zone logic: if final_score magnitude is below threshold, set dir=0
-    score_abs = abs(final_score)
+    # Use same neutral zone for all modes (unified behavior)
+    # NOTE: Neutral zone is applied ONCE here, not in decide()
+    score_abs = abs(base_final_score)
     if score_abs < NEUTRAL_THRESHOLD:
         effective_final_dir = 0
-        effective_final_conf = score_abs  # low confidence, effectively "no strong view"
+        effective_final_conf = score_abs
     else:
-        effective_final_dir = 1 if final_score > 0 else -1
+        effective_final_dir = 1 if base_final_score > 0 else -1
         effective_final_conf = min(score_abs, 1.0)
+    
+    # Round confidence to match decide() output format
+    effective_final_conf = round(effective_final_conf, 2)
     
     # SIGNAL-DEBUG: Log bucket-level details and council aggregation
     # (DEBUG_SIGNALS already defined earlier in function)
@@ -595,60 +733,48 @@ def run_step_live(symbol: str = "ETHUSDT",
     if IS_PAPER_MODE and regime == "panic_down":
         effective_final_conf = min(1.0, effective_final_conf + 0.05)
         if DEBUG_SIGNALS:
-            print(f"SIGNAL-DEBUG: panic_down conf boost applied: final_conf={effective_final_conf:.4f}")
+            print(f"SIGNAL-DEBUG: panic_down conf boost applied: final_conf={effective_final_conf:.2f}")
     if DEBUG_SIGNALS:
         ts_str = bar_ts or _now()
         bucket_str = "; ".join(
-            f"{name}:dir={bd},conf={bc:.3f},w={w:.3f}"
-            for name, bd, bc, w in bucket_debug_info
+            f"{b['name']}:dir={b['dir']},conf={b['conf']:.2f},w={b['weight']:.3f}"
+            for b in bucket_debug
         )
         print(
             f"SIGNAL-DEBUG: ts={ts_str} regime={regime} "
             f"buckets={bucket_str} | "
-            f"final_score={final_score:.4f} final_dir={effective_final_dir} final_conf={effective_final_conf:.4f}"
+            f"final_score={final_score:.4f} final_dir={effective_final_dir} final_conf={effective_final_conf:.2f}"
         )
         if effective_final_dir == 0:
             print(f"SIGNAL-DEBUG: neutralized final_score={final_score:.4f} < NEUTRAL_THRESHOLD={NEUTRAL_THRESHOLD:.2f}")
     
-    # Use regime-specific thresholds from decision.gates, with parameter as fallback
+    # Get gates from decision (for exit thresholds)
     gates = decision.get("gates", {})
-    regime_entry_min_conf = gates.get("entry_min_conf", entry_min_conf)
-    
-    # Phase 52: Chop Stabilization - Raise chop entry threshold in PAPER mode
-    if IS_PAPER_MODE and regime == "chop":
-        regime_entry_min_conf = max(regime_entry_min_conf, 0.70)
-    
-    gates_exit_min_conf = gates.get("exit_min_conf", exit_min_conf)
+    gates_exit_min_conf_base = gates.get("exit_min_conf", exit_min_conf)
+    # Lower drop threshold for trend_down/high_vol to reduce drop exits and increase TP/SL ratio
+    # Drop fires when conf < exit_min_conf, so lowering exit_min_conf (0.25 vs 0.30) makes drop fire LESS often
+    if IS_PAPER_MODE and regime in ("trend_down", "high_vol"):
+        gates_exit_min_conf = 0.25  # Lower from 0.30 to reduce drop exits (only fires when conf < 0.25)
+    else:
+        gates_exit_min_conf = gates_exit_min_conf_base
     gates_reverse_min_conf = gates.get("reverse_min_conf", reverse_min_conf)
     
-    # Phase 54: Regime + volatility-aware entry confidence (PAPER only)
-    # Adjust MIN_CONF_LIVE based on regime and volatility metrics
-    effective_min_conf_live = MIN_CONF_LIVE
-    if IS_PAPER_MODE:
-        if price_based_regime == "trend_down":
-            # If real downtrend + some vol, allow slightly lower conf in PAPER
-            if atr_pct >= 0.015 and vol_expansion >= 1.2:
-                effective_min_conf_live = max(0.50, MIN_CONF_LIVE - 0.03)
-        elif price_based_regime == "panic_down":
-            # In panic_down with high vol, allow even lower conf threshold
-            if atr_pct >= 0.02 and vol_expansion >= 1.5:
-                effective_min_conf_live = max(0.48, MIN_CONF_LIVE - 0.05)
-        elif price_based_regime == "chop":
-            # In chop, be extra strict (use base MIN_CONF_LIVE)
-            effective_min_conf_live = MIN_CONF_LIVE
-    
-    # Phase 52: Debug logging for thresholds (low-volume, per bar)
-    if DEBUG_SIGNALS:
-        print(f"LIVE-THRESHOLDS: regime={regime} entry_min_conf={regime_entry_min_conf:.2f} MIN_CONF_LIVE={MIN_CONF_LIVE:.2f} effective_MIN_CONF={effective_min_conf_live:.2f}")
-        print(f"LIVE-EXIT-THRESHOLDS: regime={regime} tp_conf={take_profit_conf:.2f} sl_conf={stop_loss_conf:.2f}")
-
+    # Evaluate risk adapter to get risk_band (needed for threshold computation)
     pa_status = pa_evaluate(REPORTS / "pa_status.json")
     pa_mult = pa_rmult(REPORTS / "pa_status.json") if policy.get("allow_pa", True) else 1.0
     adapter = risk_eval() or {}
     if not isinstance(adapter, dict):
         adapter = {}
     adapter_mult = float(adapter.get("mult", 1.0))
-    adapter_band = adapter.get("band") or "N/A"
+    adapter_band = adapter.get("band") or "A"
+    
+    # Compute entry threshold using simplified helper (regime + risk_band only)
+    effective_min_conf_live = compute_entry_min_conf(price_based_regime, adapter_band)
+    
+    # Debug logging for thresholds (low-volume, per bar)
+    if DEBUG_SIGNALS:
+        print(f"THRESHOLDS: regime={price_based_regime} risk_band={adapter_band} entry_min={effective_min_conf_live:.2f}")
+        print(f"EXIT-THRESHOLDS: regime={regime} tp_conf={take_profit_conf:.2f} sl_conf={stop_loss_conf:.2f}")
     adapter["mult"] = adapter_mult
     adapter["band"] = adapter_band
     rmult = max(0.5, min(1.25, float(pa_mult) * adapter_mult))
@@ -706,11 +832,24 @@ def run_step_live(symbol: str = "ETHUSDT",
         # This will only work if policy allows opens and no duplicate position
         open_if_allowed(final_dir=1, final_conf=0.55, entry_min_conf=0.55, risk_mult=1.0)
 
-    def _try_open(direction: int, confidence: float) -> bool:
+    def _try_open(direction: int, confidence: float, now: Optional[datetime] = None, regime: Optional[str] = None) -> bool:
         # Phase 51: Anti-Thrash Guardrails - Check guardrails before opening
         global _LAST_BAR_STATE
         
         if direction == 0:
+            return False
+        
+        # Regime gate: only allow entries in trend_down and high_vol (unified for all modes)
+        # This is checked here as a safety net, but should already be checked at call site
+        # Can be overridden in backtests with BACKTEST_FREE_REGIME=1
+        if regime and not regime_allows_entry(regime):
+            if DEBUG_SIGNALS:
+                free_regime = os.getenv("BACKTEST_FREE_REGIME") == "1"
+                gate_msg = "all regimes allowed (BACKTEST_FREE_REGIME=1)" if free_regime else "only trend_down/high_vol allowed"
+                print(
+                    f"REGIME-GATE: skip open in regime={regime} "
+                    f"(dir={direction}, conf={confidence:.4f}) - {gate_msg}"
+                )
             return False
         
         # Guardrail 1: Max 1 open per bar
@@ -720,13 +859,15 @@ def run_step_live(symbol: str = "ETHUSDT",
                 print(f"LIVE-GUARD: skip open, already opened on this bar {bar_ts_display}")
             return False
         
-        # Guardrail 2: Cooldown between opens
+        # Guardrail 2: Cooldown between opens (uses simulated time in backtest)
+        if now is None:
+            now = datetime.now(timezone.utc)
+        
         last_open_ts_str = _LAST_BAR_STATE.get("last_open_ts")
         if last_open_ts_str:
             try:
                 last_open_dt = datetime.fromisoformat(last_open_ts_str.replace("Z", "+00:00"))
-                current_now = datetime.now(timezone.utc)
-                delta_sec = (current_now - last_open_dt).total_seconds()
+                delta_sec = (now - last_open_dt).total_seconds()
                 if delta_sec < _COOL_DOWN_SECONDS:
                     if DEBUG_SIGNALS:
                         print(f"LIVE-GUARD: cooldown active ({delta_sec:.1f}s < {_COOL_DOWN_SECONDS}s), skip open.")
@@ -735,11 +876,19 @@ def run_step_live(symbol: str = "ETHUSDT",
                 # If parsing fails, ignore cooldown just this time (safety fallback)
                 pass
         
-        # Guardrail 4: Cluster SL/drop guard
+        # Guardrail 4: Cluster SL/drop guard (uses simulated time in backtest)
+        if now is None:
+            now = datetime.now(timezone.utc)
+        
         current_bad_exits = _LAST_BAR_STATE.get("recent_bad_exits", [])
-        if len(current_bad_exits) >= _BAD_EXIT_THRESHOLD:
+        # Filter bad exits to only those within the window (using simulated time)
+        recent_bad_exits = [
+            exit_ts for exit_ts in current_bad_exits
+            if (now - exit_ts).total_seconds() <= _BAD_EXIT_WINDOW_SECONDS
+        ]
+        if len(recent_bad_exits) >= _BAD_EXIT_THRESHOLD:
             if DEBUG_SIGNALS:
-                print(f"LIVE-GUARD: {len(current_bad_exits)} SL/drop exits in last {_BAD_EXIT_WINDOW_SECONDS}s, skip open.")
+                print(f"LIVE-GUARD: {len(recent_bad_exits)} SL/drop exits in last {_BAD_EXIT_WINDOW_SECONDS}s, skip open.")
             return False
         
         current_pos = get_live_position()
@@ -785,26 +934,29 @@ def run_step_live(symbol: str = "ETHUSDT",
         else:
             pretrade_ok = position_sizing.pretrade_check(spread_bps, latency_ms, sizing_cfg)
         if not pretrade_ok:
-            print(f"LIVE-DEBUG: skip trade dir={direction} conf={confidence:.4f} - pretrade check failed: spread={spread_bps}bps latency={latency_ms}ms")
+            print(f"LIVE-DEBUG: skip trade dir={direction} conf={confidence:.2f} - pretrade check failed: spread={spread_bps}bps latency={latency_ms}ms")
             return False
+        
+        # All modes now use same entry logic (LAB/BACKTEST matches LIVE/PAPER)
         opened_local = open_if_allowed(
             final_dir=direction,
             final_conf=confidence,
-            entry_min_conf=regime_entry_min_conf,
+            entry_min_conf=effective_min_conf_live,
             risk_mult=rmult,
-            regime=regime,  # Pass regime for observability
-            risk_band=adapter_band  # Pass risk_band for observability
+            regime=regime,
+            risk_band=adapter_band,
+            symbol=symbol,
+            timeframe=timeframe
         )
-        if not opened_local:
-            print(f"LIVE-DEBUG: skip trade dir={direction} conf={confidence:.4f} - open_if_allowed returned False")
-            return False
         
-        # Note: open_if_allowed() now logs regime/risk_band via its parameters
-        # We pass these below when calling it
+        if not opened_local:
+            if DEBUG_SIGNALS:
+                print(f"LIVE-DEBUG: skip trade dir={direction} conf={confidence:.2f} - open_if_allowed returned False")
+            return False
         
         # Phase 51: Anti-Thrash Guardrails - Mark that we opened on this bar
         _LAST_BAR_STATE["opened_this_bar"] = True
-        _LAST_BAR_STATE["last_open_ts"] = datetime.now(timezone.utc).isoformat()
+        _LAST_BAR_STATE["last_open_ts"] = now.isoformat()
         
         if high_conf:
             print(f"LIVE-DEBUG: HIGH-CONF trade opened dir={direction} conf={confidence:.4f} risk_r={risk_r:.2f}")
@@ -840,20 +992,63 @@ def run_step_live(symbol: str = "ETHUSDT",
         
         return opened_local
 
-    if allow_opens and final_dir != 0 and final_conf < effective_min_conf_live:
-        print(f"LIVE-DEBUG: skip trade dir={final_dir} conf={final_conf:.4f} < effective_MIN_CONF={effective_min_conf_live:.2f}")
-
-    # Phase 57: Check trend confirmation before opening (PAPER only)
-    can_open = (allow_opens and final_dir != 0 and final_conf >= effective_min_conf_live)
-    
-    if IS_PAPER_MODE and price_based_regime in ("trend_up", "trend_down") and not regime_confirmed:
+    # ------------------------------------------------------------------
+    # Entry gating: Unified logic for all modes
+    # ------------------------------------------------------------------
+    # Step 1: Regime gate (only trend_down and high_vol allowed, unless BACKTEST_FREE_REGIME=1)
+    if not regime_allows_entry(price_based_regime):
         if DEBUG_SIGNALS:
-            print(f"REGIME-CONFIRM: blocked open in unconfirmed {price_based_regime} (final_conf={final_conf:.4f}) detail={regime_confirm_detail}")
-        can_open = False
+            free_regime = os.getenv("BACKTEST_FREE_REGIME") == "1"
+            gate_msg = "all regimes allowed (BACKTEST_FREE_REGIME=1)" if free_regime else "only trend_down/high_vol allowed"
+            print(
+                f"REGIME-GATE: skip open in regime={price_based_regime} "
+                f"(dir={effective_final_dir}, conf={effective_final_conf:.2f}) - {gate_msg}"
+            )
+        # Build result dict for early return
+        final = {"dir": effective_final_dir, "conf": effective_final_conf}
+        return {
+            "ts": bar_ts or _now(),
+            "regime": regime,
+            "final": final,
+            "policy": policy,
+            "pa": {"armed": bool(pa_status.get("armed")), "rmult": float(pa_mult)},
+            "risk_adapter": adapter,
+            "context": out.get("context", {}),
+            "equity_live": position_sizing.read_equity_live(),
+            "pnl": 0.0,
+        }
     
+    # Step 2: Check confidence threshold
+    if allow_opens and effective_final_dir != 0 and effective_final_conf < effective_min_conf_live:
+        if DEBUG_SIGNALS:
+            print(f"ENTRY-THRESHOLD: skip trade dir={effective_final_dir} conf={effective_final_conf:.2f} < entry_min={effective_min_conf_live:.2f}")
+        # Build result dict for early return
+        final = {"dir": effective_final_dir, "conf": effective_final_conf}
+        return {
+            "ts": bar_ts or _now(),
+            "regime": regime,
+            "final": final,
+            "policy": policy,
+            "pa": {"armed": bool(pa_status.get("armed")), "rmult": float(pa_mult)},
+            "risk_adapter": adapter,
+            "context": out.get("context", {}),
+            "equity_live": position_sizing.read_equity_live(),
+            "pnl": 0.0,
+        }
+    
+    # Step 3: Attempt to open (regime gate and threshold checks passed)
+    can_open = (allow_opens and effective_final_dir != 0 and effective_final_conf >= effective_min_conf_live)
+    opened = False
     if can_open:
-        if not (live_pos and live_pos.get("dir") == final_dir):
-            _try_open(final_dir, final_conf)
+        if not (live_pos and live_pos.get("dir") == effective_final_dir):
+            opened = _try_open(effective_final_dir, effective_final_conf, now=now, regime=price_based_regime)
+            if opened and DEBUG_SIGNALS:
+                mode = "PAPER" if IS_PAPER_MODE else "LIVE"
+                print(
+                    f"ENTRY: mode={mode} dir={effective_final_dir} "
+                    f"conf={effective_final_conf:.2f} >= entry_min={effective_min_conf_live:.2f} "
+                    f"regime={price_based_regime} risk_band={adapter_band}"
+                )
 
     live_pos = get_live_position()
     # live_exit logic summary:
@@ -876,7 +1071,13 @@ def run_step_live(symbol: str = "ETHUSDT",
             and final["dir"] != live_pos["dir"]
             and final["conf"] >= gates_reverse_min_conf
         )
+        # ---------------------------
+        # EXIT-MIN
+        # ---------------------------
         drop = (final["conf"] < gates_exit_min_conf)
+        # ---------------------------
+        # DECAY
+        # ---------------------------
         decay = (live_pos["bars_open"] >= decay_bars)
         bars_open = live_pos.get("bars_open", 0)
 
@@ -894,36 +1095,56 @@ def run_step_live(symbol: str = "ETHUSDT",
         # Phase 51: Anti-Thrash Guardrails - Ensure min-hold is respected
         # Gate normal exits (TP, SL, reverse, drop) with minimum hold time
         # Decay is handled separately as it has its own gate (bars_open >= decay_bars)
-        # Critical exits (hard stop-loss, extreme adverse) are allowed before min-hold
+        # Critical exits (hard stop-loss) are allowed before min-hold
+        
+        # Check min-hold guard
+        # Allow TP to bypass min-hold if confidence is very high (>= 0.70) - captures strong moves early
+        # This increases TP exits and reduces drop/decay exits by allowing early TP captures
+        high_conf_tp = take_profit and final["conf"] >= 0.70
         if bars_open < MIN_HOLD_BARS_LIVE:
-            # Only allow critical exits (stop_loss) before min-hold
-            # Non-critical exits (drop, reverse) must wait for min-hold
-            if take_profit or drop or flip:
-                print(f"LIVE-GUARD: min-hold active (bars_open={bars_open} < MIN_HOLD_BARS_LIVE={MIN_HOLD_BARS_LIVE}), skip non-critical exit (reason: {'tp' if take_profit else 'drop' if drop else 'reverse'})")
-                # Reset exit flags for non-critical exits
+            # Critical exits (stop_loss) and high-confidence TP (>= 0.70) can fire immediately
+            # Non-critical exits (drop, reverse, low-conf take_profit) must wait for min-hold
+            if take_profit and not high_conf_tp:
+                # Low-confidence TP must wait for min-hold
+                if DEBUG_SIGNALS:
+                    print(f"LIVE-GUARD: min-hold active (bars_open={bars_open} < MIN_HOLD_BARS_LIVE={MIN_HOLD_BARS_LIVE}), skip TP (conf={final['conf']:.2f} < 0.70)")
                 take_profit = False
+            elif drop or flip:
+                if DEBUG_SIGNALS:
+                    print(f"LIVE-GUARD: min-hold active (bars_open={bars_open} < MIN_HOLD_BARS_LIVE={MIN_HOLD_BARS_LIVE}), skip non-critical exit (reason: {'drop' if drop else 'reverse'})")
+                # Reset exit flags for non-critical exits
                 drop = False
                 flip = False
-            # stop_loss is allowed (critical exit)
-        else:
-            # Normal exits allowed once minimum hold time is met
-            if take_profit:
-                print(f"EXIT-DEBUG: TP hit conf={final['conf']:.4f} >= take_profit_conf={take_profit_conf:.4f}")
-                close_pct = abs(float(final.get("conf", 0.0)))
-            elif stop_loss:
-                close_pct = -abs(float(final.get("conf", 0.0)))
-            elif drop:
-                print(f"EXIT-DEBUG: EXIT-MIN hit conf={final['conf']:.4f} < exit_min_conf={gates_exit_min_conf:.4f}")
-                close_pct = float(final.get("conf", 0.0)) if same_dir else -float(final.get("conf", 0.0))
-            elif flip:
-                print(f"EXIT-DEBUG: REVERSE hit dir={final['dir']} conf={final['conf']:.4f} >= reverse_min_conf={gates_reverse_min_conf:.4f}")
-                close_pct = float(final.get("conf", 0.0)) if same_dir else -float(final.get("conf", 0.0))
-                reopen_after_flip = flip and policy.get("allow_opens", True)
+            # stop_loss and high_conf_tp are allowed (critical/high-confidence exits) - handle below
+        
+        # Evaluate exits - determine which exit reason fired
+        # We'll compute price-based P&L below, not confidence-based
+        exit_fired = False
+        if stop_loss:
+            exit_fired = True
+        elif take_profit:
+            # TP can fire if: (1) min-hold met OR (2) high confidence (>= 0.70) bypasses min-hold
+            if bars_open >= MIN_HOLD_BARS_LIVE or high_conf_tp:
+                exit_fired = True
+                if high_conf_tp and bars_open < MIN_HOLD_BARS_LIVE:
+                    print(f"EXIT-DEBUG: TP hit (high-conf bypass) conf={final['conf']:.4f} >= 0.70, bars_open={bars_open}")
+                else:
+                    print(f"EXIT-DEBUG: TP hit conf={final['conf']:.4f} >= take_profit_conf={take_profit_conf:.4f}")
+        elif bars_open >= MIN_HOLD_BARS_LIVE:
+            if drop or flip:
+                exit_fired = True
+                if drop:
+                    if DEBUG_SIGNALS:
+                        print(f"EXIT-DEBUG: EXIT-MIN hit conf={final['conf']:.4f} < exit_min_conf={gates_exit_min_conf:.4f}")
+                elif flip:
+                    print(f"EXIT-DEBUG: REVERSE hit dir={final['dir']} conf={final['conf']:.4f} >= reverse_min_conf={gates_reverse_min_conf:.4f}")
+                    reopen_after_flip = flip and policy.get("allow_opens", True)
+        
         # Decay exit is independent and only requires bars_open >= decay_bars
-        if decay and close_pct is None:
-            close_pct = float(final.get("conf", 0.0)) if same_dir else -float(final.get("conf", 0.0))
+        if decay:
+            exit_fired = True
 
-        if close_pct is not None:
+        if exit_fired:
             # Determine exit_reason based on which condition triggered the exit
             exit_reason = "unknown"
             if decay:
@@ -952,9 +1173,20 @@ def run_step_live(symbol: str = "ETHUSDT",
             pos_dir = live_pos.get("dir")
             
             # Get latest bar's close price as exit_price
+            # This works for both live (real API) and backtest (mocked OHLCV)
             ohlcv_rows = get_live_ohlcv(symbol=symbol, timeframe=timeframe, limit=1)
             if ohlcv_rows and len(ohlcv_rows) > 0:
-                exit_price = ohlcv_rows[-1].get("close")
+                latest_candle = ohlcv_rows[-1]
+                exit_price = latest_candle.get("close")
+                # Try alternative field names if "close" is missing
+                if exit_price is None:
+                    exit_price = latest_candle.get("c") or latest_candle.get("close_price")
+            
+            # Debug logging for price extraction
+            if os.getenv("DEBUG_SIGNALS") == "1":
+                print(f"EXIT-PRICE-DEBUG: entry_price={entry_price}, exit_price={exit_price}, pos_dir={pos_dir}")
+                if ohlcv_rows and len(ohlcv_rows) > 0:
+                    print(f"EXIT-PRICE-DEBUG: latest_candle keys={list(ohlcv_rows[-1].keys())}")
             
             # Compute price-based pct
             price_based_pct = None
@@ -1024,14 +1256,14 @@ def run_step_live(symbol: str = "ETHUSDT",
             if allow_live_writes:
                 position_sizing.write_equity_live(equity_live_value)
                 _append_equity_live_record(bar_ts or _now(), equity_live_value, adj_pct, pct_net, r_value)
-                try:
-                    pf_weighted.update(source="live")
-                except Exception:
-                    pass
+            try:
+                pf_weighted.update(source="live")
+            except Exception:
+                pass
             clear_live_position()
             clear_position()
             if reopen_after_flip:
-                _try_open(final["dir"], final["conf"])
+                _try_open(final["dir"], final["conf"], regime=regime)
 
     # Log council event for every bar (decision point) - not just opens/closes
     # This ensures reflection can analyze all decision points, not just trade events
@@ -1053,6 +1285,17 @@ def run_step_live(symbol: str = "ETHUSDT",
     )
 
     equity_live_out = position_sizing.read_equity_live()
+    
+    # Extract PnL from close event (only non-zero when a close happened)
+    # final_pct is computed in the exit logic above if a close occurred
+    pnl = 0.0
+    try:
+        if 'final_pct' in locals() and final_pct is not None:
+            # Convert pct (percentage) to decimal for equity calculation
+            # final_pct is already in percentage form (0.0-100.0), convert to decimal (0.0-1.0)
+            pnl = float(final_pct) / 100.0
+    except (NameError, TypeError, ValueError):
+        pass
 
     return {
         "ts": bar_ts or _now(),
@@ -1063,6 +1306,7 @@ def run_step_live(symbol: str = "ETHUSDT",
         "risk_adapter": adapter,
         "context": out.get("context", {}),
         "equity_live": equity_live_out,
+        "pnl": pnl,  # PnL as decimal (e.g., 0.05 for +5% move)
     }
 
 def run_batch(n: int = 25):
