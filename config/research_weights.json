@@ -1,0 +1,13 @@
+{
+  "source_weights": {
+    "static": 1.0,
+    "live": 3.0
+  },
+  "recency_half_life_days": 14,
+  "min_trades_per_regime": 40,
+  "min_weighted_trades_per_regime": 30,
+  "max_threshold_step_per_night": 0.05,
+  "min_expectancy_edge": 0.0005
+}
+
+

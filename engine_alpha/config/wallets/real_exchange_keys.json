@@ -1,0 +1,20 @@
+{
+  "bybit": {
+    "api_key": "",
+    "api_secret": "",
+    "type": "real"
+  },
+  "binance": {
+    "api_key": "",
+    "api_secret": "",
+    "type": "real"
+  },
+  "okx": {
+    "api_key": "",
+    "api_secret": "",
+    "passphrase": "",
+    "type": "real"
+  }
+}
+
+

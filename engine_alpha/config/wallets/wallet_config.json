@@ -1,0 +1,9 @@
+{
+  "active_wallet_mode": "paper",
+  "paper_exchange": "paper",
+  "real_exchange": "bybit",
+  "confirm_live_trade": true,
+  "max_live_notional_per_trade_usd": 500,
+  "max_live_daily_notional_usd": 5000
+}
+

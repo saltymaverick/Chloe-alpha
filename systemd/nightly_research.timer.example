@@ -1,0 +1,11 @@
+[Unit]
+Description=Run Chloe Nightly Research daily
+
+[Timer]
+OnCalendar=*-*-* 03:05:00
+AccuracySec=5min
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+

@@ -1,0 +1,45 @@
+ADAUSDT:
+  active_strategy: ADA_main
+  parent_strategy: ADA_main
+  variants: []
+ATOMUSDT:
+  active_strategy: ATOM_main
+  parent_strategy: ATOM_main
+  variants: []
+AVAXUSDT:
+  active_strategy: AVAX_main
+  parent_strategy: AVAX_main
+  variants: []
+BNBUSDT:
+  active_strategy: BNB_main
+  parent_strategy: BNB_main
+  variants: []
+BTCUSDT:
+  active_strategy: BTC_main
+  parent_strategy: BTC_main
+  variants: []
+DOGEUSDT:
+  active_strategy: DOGE_main
+  parent_strategy: DOGE_main
+  variants: []
+DOTUSDT:
+  active_strategy: DOT_main
+  parent_strategy: DOT_main
+  variants: []
+ETHUSDT:
+  active_strategy: ETH_main_mut_0003
+  parent_strategy: ETH_main
+  variants:
+  - ETH_main_mut_0003
+LINKUSDT:
+  active_strategy: LINK_main
+  parent_strategy: LINK_main
+  variants: []
+SOLUSDT:
+  active_strategy: SOL_main
+  parent_strategy: SOL_main
+  variants: []
+XRPUSDT:
+  active_strategy: XRP_main
+  parent_strategy: XRP_main
+  variants: []

@@ -1,0 +1,34 @@
+{
+  "generated_at": "2025-12-05T21:36:57.089202+00:00",
+  "mode": "PAPER_ONLY",
+  "overrides": {
+    "BNBUSDT": {
+      "conf_min_delta": 0.02,
+      "exploration_cap_delta": 1,
+      "notes": [
+        "Applied +0.020/+1 from tuner v4 (2025-12-05T21:36:57.089132+00:00)"
+      ]
+    },
+    "BTCUSDT": {
+      "conf_min_delta": 0.02,
+      "exploration_cap_delta": 1,
+      "notes": [
+        "Applied +0.020/+1 from tuner v4 (2025-12-05T21:36:57.089185+00:00)"
+      ]
+    },
+    "DOTUSDT": {
+      "conf_min_delta": 0.02,
+      "exploration_cap_delta": 1,
+      "notes": [
+        "Applied +0.020/+1 from tuner v4 (2025-12-05T21:36:57.089193+00:00)"
+      ]
+    },
+    "ETHUSDT": {
+      "conf_min_delta": 0.02,
+      "exploration_cap_delta": 1,
+      "notes": [
+        "Applied +0.020/+1 from tuner v4 (2025-12-05T21:36:57.089199+00:00)"
+      ]
+    }
+  }
+}

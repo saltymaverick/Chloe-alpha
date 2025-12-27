@@ -31,7 +31,9 @@ def run_step():
 
     # entry logic (paper, size=1)
     if prev_dir == 0 and new_dir != 0 and final["conf"] >= 0.5:
-        _position = {"dir": new_dir, "entry_px": 1.0, "bars_open": 0}
+        # NOTE: diagnostic_loop doesn't write entry_px to trades.jsonl, but we avoid 1.0 internally too
+        # Use None to indicate "not set" rather than fake 1.0
+        _position = {"dir": new_dir, "entry_px": None, "bars_open": 0}
         _stats["opens"] += 1
         _append_trade({"ts": now, "type": "open", "dir": new_dir, "pct": 0.0})
 
@@ -50,7 +52,8 @@ def run_step():
             if flip:
                 _stats["reversals"] += 1
                 # open opposite immediately (paper)
-                _position = {"dir": new_dir, "entry_px": 1.0, "bars_open": 0}
+                # NOTE: diagnostic_loop doesn't write entry_px to trades.jsonl, but we avoid 1.0 internally too
+                _position = {"dir": new_dir, "entry_px": None, "bars_open": 0}
                 _stats["opens"] += 1
                 _append_trade({"ts": now, "type": "open", "dir": new_dir, "pct": 0.0})
 

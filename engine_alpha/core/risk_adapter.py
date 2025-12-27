@@ -196,12 +196,16 @@ def evaluate() -> Dict[str, object]:
             if pf_last_30 is not None and count_30 >= 20 and pf_last_30 >= 1.05:
                 band = "B"
                 mult = max(mult, 0.70)
-                print(f"RISK-DEBUG: PAPER promotion C→B pf_last_30={pf_last_30:.3f} count={count_30} dd={drawdown:.4%}")
-            elif drawdown < 0.08:
-                # Fallback to DD-only promotion (existing behavior)
+                if os.getenv("DEBUG_SIGNALS", "0") == "1":
+                    print(f"RISK-DEBUG: PAPER promotion C→B pf_last_30={pf_last_30:.3f} count={count_30} dd={drawdown:.4%}")
+            elif pf_last_30 is None:
+                # Fallback to DD-only promotion ONLY when PF data is genuinely unavailable
+                # (not when PF exists but fails threshold or has insufficient sample - that means stay in C)
+                # This ensures we don't promote when pf exists but is bad (e.g., 0.85) or has insufficient sample (count < 20)
                 band = "B"
-                mult = 0.70
-                print(f"RISK-DEBUG: PAPER promotion C→B as DD improved to {drawdown:.4%}")
+                mult = max(mult, 0.70)
+                if os.getenv("DEBUG_SIGNALS", "0") == "1":
+                    print(f"RISK-DEBUG: PAPER promotion C→B as DD improved to {drawdown:.4%} (PF data unavailable: pf=None, count={count_30})")
         
         # B → A promotion: full paper trust
         # Requires: DD < 5%, PF >= 1.15 over last 50 trades (with at least 40 trades) AND
@@ -213,7 +217,8 @@ def evaluate() -> Dict[str, object]:
             ):
                 band = "A"
                 mult = max(mult, 1.0)
-                print(f"RISK-DEBUG: PAPER promotion B→A pf_last_50={pf_last_50:.3f} pf_last_20={pf_last_20:.3f} dd={drawdown:.4%}")
+                if os.getenv("DEBUG_SIGNALS", "0") == "1":
+                    print(f"RISK-DEBUG: PAPER promotion B→A pf_last_50={pf_last_50:.3f} pf_last_20={pf_last_20:.3f} dd={drawdown:.4%}")
     
     # Clamp risk_mult to [0.5, 1.25] bounds
     mult = _bounded(mult)

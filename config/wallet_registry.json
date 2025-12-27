@@ -1,0 +1,11 @@
+[
+  {
+    "id": "paper_ethusdt_main",
+    "label": "Paper ETH/USDT Main Wallet",
+    "kind": "paper",
+    "role": "primary",
+    "enabled": true,
+    "notes": "Default paper wallet for simulation. No real funds."
+  }
+]
+

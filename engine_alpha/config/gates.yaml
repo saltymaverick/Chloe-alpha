@@ -4,7 +4,7 @@
 entry_exit:
   entry_min_conf:
     trend: 0.70
-    chop: 0.72
+    chop: 0.25  # Lowered for Phase 5J chop testing
     high_vol: 0.71
   exit_min_conf: 0.30
   reverse_min_conf: 0.60

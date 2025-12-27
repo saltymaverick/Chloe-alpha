@@ -15,10 +15,10 @@ Regimes: panic_down, trend_down, trend_up, high_vol, chop
 """
 
 from __future__ import annotations
-from typing import Literal, Dict, Any, List, Tuple
+from typing import Literal, Dict, Any, List, Tuple, Optional
 import math
 
-Regime = Literal["chop", "trend_up", "trend_down", "high_vol", "panic_down"]
+Regime = Literal["chop", "trend_up", "trend_down", "high_vol", "panic_down"]  # panic_down kept for backward compat, but new classifier doesn't return it
 
 
 def _to_floats(seq):
@@ -234,81 +234,313 @@ def compute_regime_metrics(rows: List[dict]) -> Dict[str, Any]:
     }
 
 
+def classify_regime_simple(closes: List[float], highs: Optional[List[float]] = None, lows: Optional[List[float]] = None) -> str:
+    """
+    Realistic regime classifier using price history, slopes, and structure.
+    
+    Args:
+        closes: list of recent close prices, length >= 20
+        highs: optional list of high prices (same length as closes)
+        lows: optional list of low prices (same length as closes)
+    
+    Returns:
+        "trend_up", "trend_down", "high_vol", or "chop"
+    """
+    import os
+    DEBUG_REGIME = os.getenv("DEBUG_REGIME", "0") == "1"
+    
+    # Safety for short histories
+    if len(closes) < 20:
+        if DEBUG_REGIME:
+            print(f"REGIME-SIMPLE: insufficient data (n={len(closes)}), defaulting to chop")
+        return "chop"
+    
+    # Helper function for slopes
+    def slope(series: List[float]) -> float:
+        """Compute average slope over series."""
+        if len(series) < 2:
+            return 0.0
+        return (series[-1] - series[0]) / max(1, len(series) - 1)
+    
+    # Compute slopes at different horizons
+    slope5 = slope(closes[-5:]) if len(closes) >= 5 else 0.0
+    slope20 = slope(closes[-20:]) if len(closes) >= 20 else slope(closes) if closes else 0.0
+    slope50 = slope(closes[-50:]) if len(closes) >= 50 else slope20
+    
+    # High/low structure (local peaks/troughs)
+    hh = 0  # higher-high count
+    ll = 0  # lower-low count
+    for i in range(1, len(closes) - 1):
+        if closes[i] > closes[i - 1] and closes[i] > closes[i + 1]:
+            hh += 1
+        if closes[i] < closes[i - 1] and closes[i] < closes[i + 1]:
+            ll += 1
+    
+    # Compute ATR14 and ATR100
+    atr14 = None
+    atr100 = None
+    
+    if highs is not None and lows is not None and len(highs) == len(closes) and len(lows) == len(closes):
+        def compute_atr_ema(highs_list, lows_list, closes_list, period):
+            """Compute ATR using EMA of True Ranges."""
+            if len(closes_list) < period + 1:
+                return None
+            
+            trs = []
+            for i in range(len(closes_list) - period, len(closes_list)):
+                if i == 0:
+                    continue
+                tr = max(
+                    highs_list[i] - lows_list[i],
+                    abs(highs_list[i] - closes_list[i-1]),
+                    abs(lows_list[i] - closes_list[i-1])
+                )
+                trs.append(tr)
+            
+            if not trs:
+                return None
+            
+            # EMA of TRs
+            alpha = 2.0 / (period + 1)
+            atr = trs[0]
+            for tr in trs[1:]:
+                atr = alpha * tr + (1 - alpha) * atr
+            return atr
+        
+        # ATR14: last 14 bars
+        if len(closes) >= 15:
+            atr14 = compute_atr_ema(highs[-15:], lows[-15:], closes[-15:], 14)
+        
+        # ATR100: last 100 bars (or what we have)
+        if len(closes) >= 101:
+            atr100 = compute_atr_ema(highs[-101:], lows[-101:], closes[-101:], 100)
+        elif len(closes) >= 20:
+            atr100 = compute_atr_ema(highs[-len(closes):], lows[-len(closes):], closes[-len(closes):], min(100, len(closes)))
+    
+    # Compute ATR metrics
+    last = closes[-1] if closes else 0.0
+    first = closes[0] if closes else last
+    atr_ratio = 1.0
+    atr_pct = 0.0
+    
+    if atr14 is not None and atr100 is not None and atr100 > 0:
+        atr_ratio = atr14 / atr100
+    elif atr14 is not None and atr100 is None and len(closes) >= 20:
+        # Fallback: use longer-term ATR estimate
+        if highs is not None and lows is not None:
+            atr_long = compute_atr_ema(highs[-len(closes):], lows[-len(closes):], closes[-len(closes):], min(50, len(closes)))
+            if atr_long is not None and atr_long > 0:
+                atr_ratio = atr14 / atr_long
+    
+    if atr14 is not None and last > 0:
+        atr_pct = atr14 / last
+    
+    # Overall change over window (context)
+    change_pct = (last - first) / max(1e-8, first) if first > 0 else 0.0
+    
+    # Classify regime using realistic rules
+    regime_str: str
+    
+    # 1) High volatility regime: volatility is structurally elevated
+    # Lowered threshold from 1.25 to 1.10 to catch more high-vol periods
+    if atr_pct >= 0.018 or atr_ratio >= 1.10:
+        regime_str = "high_vol"
+    # 2) Trend up: persistent upward slopes + more HH than LL + positive context
+    # Lowered change_pct from 8% to 1% to catch more trends
+    elif (
+        change_pct >= 0.01  # ~1%+ move over window (was 0.03, originally 0.08)
+        and slope20 > 0
+        and slope20 / max(1e-8, first) >= 0.00005  # Lowered from 0.0002
+        and hh >= ll
+    ):
+        regime_str = "trend_up"
+    # 3) Trend down: persistent downward slopes + more LL than HH + negative context
+    # Lowered change_pct from -8% to -1% to catch more trends
+    elif (
+        change_pct <= -0.01  # ~1%+ drop over window (was -0.02, originally -0.08)
+        and slope20 < 0
+        and abs(slope20) / max(1e-8, first) >= 0.00005  # Lowered from 0.0001
+        and ll >= hh
+    ):
+        regime_str = "trend_down"
+    # 4) Fallback: if strong slope but doesn't meet trend criteria, check for trend_down
+    # This catches periods with consistent downward movement even if change_pct isn't extreme
+    elif (
+        slope20 < 0
+        and abs(slope20) / max(1e-8, first) >= 0.0001  # Strong downward slope (lowered from 0.0002)
+        and ll > hh  # More lower lows than higher highs
+        and change_pct <= -0.002  # At least 0.2% down (lowered from 0.5%)
+    ):
+        regime_str = "trend_down"
+    # 5) Additional fallback: if we have strong negative slope and more LL, classify as trend_down
+    # This is more permissive and catches weak trends
+    elif (
+        slope20 < 0
+        and abs(slope20) / max(1e-8, first) >= 0.00005  # Even weaker slope
+        and ll >= hh + 1  # At least one more LL than HH
+    ):
+        regime_str = "trend_down"
+    # 5) Otherwise: chop (rangebound / noisy)
+    else:
+        regime_str = "chop"
+    
+    if DEBUG_REGIME:
+        print(f"REGIME-SIMPLE: regime={regime_str} slope5={slope5:.6f} slope20={slope20:.6f} hh={hh} ll={ll} atr_ratio={atr_ratio:.3f} change_pct={change_pct:.4f}")
+    
+    return regime_str
+
+
 def classify_regime(rows: List[dict]) -> Dict[str, Any]:
     """
-    Classify regime into one of:
-    - "panic_down"  (flush)
-    - "trend_down"
-    - "trend_up"
-    - "high_vol"
-    - "chop"
-
+    Simple, robust regime classifier using only price data.
+    
+    Classifies into: "trend_up", "trend_down", "high_vol", "chop"
+    
     Returns {"regime": <label>, "metrics": {..}}.
     """
-    metrics = compute_regime_metrics(rows)
-    slope = metrics["slope"]
-    atr_pct = metrics["atr_pct"]
-    accel = metrics["accel"]
-    body_ratio = metrics["body_wick_ratio"]
-    hh_ll_down = metrics["hh_ll_down"]
-    rsi_14 = metrics["rsi_14"]
-    velocity = metrics["velocity"]
-    jerk = metrics["jerk"]
-    displacement = metrics["displacement"]
-    impulse = metrics["impulse"]
-    vol_expansion = metrics["vol_expansion"]
-
-    # Parameter heuristics – tunable thresholds for 1h ETH
-    # Module-level constants for later tuning
-    PANIC_MOVE = -0.05      # -5% over window
-    TREND_MOVE = 0.02       # ±2%
-    HIGH_ATR = 0.02         # 2% ATR
-    STRONG_BODY = 0.6
-    HHLL_DOWN_MIN = 3
-    RSI_PANIC = 30.0
-    VEL_PANIC = 0.01        # 1% avg move per bar
-    DISP_PANIC = 1.5        # close is 1.5 ATR away from EMA
-    VOL_EXP_PANIC = 1.5     # ATR% expanded vs history
-    IMPULSE_STRONG = 1.0    # body ~ ATR
-
-    regime: Regime
-
-    # Panic flush: strong, fast down with multiple confirmations
-    # Require multiple conditions to keep panic_down rare and meaningful
-    panic_conditions = [
-        slope <= PANIC_MOVE,
-        atr_pct >= HIGH_ATR,
-        hh_ll_down >= HHLL_DOWN_MIN,
-        rsi_14 <= RSI_PANIC,
-        velocity >= VEL_PANIC,
-        displacement >= DISP_PANIC,
-        vol_expansion >= VOL_EXP_PANIC,
-        impulse >= IMPULSE_STRONG,
-    ]
-    # Require at least 6 out of 8 conditions for panic_down
-    if sum(panic_conditions) >= 6:
-        regime = "panic_down"
-    # Trend down: medium sustained move down with structure
-    elif (slope <= -TREND_MOVE and 
-          hh_ll_down >= 2 and 
-          rsi_14 <= 45 and  # mildly low
-          body_ratio >= 0.4 and
-          velocity > 0.003):  # 0.3% avg per bar
-        regime = "trend_down"
-    # Trend up: sustained move up with momentum
-    elif (slope >= TREND_MOVE and
-          rsi_14 >= 55 and
-          body_ratio >= 0.4 and
-          velocity > 0.003):  # 0.3% avg per bar
-        regime = "trend_up"
-    # High volatility but not clear direction
-    elif (atr_pct >= HIGH_ATR and
-          -TREND_MOVE < slope < TREND_MOVE):  # direction not strong
-        regime = "high_vol"
-    else:
-        regime = "chop"
-
+    import os
+    DEBUG_REGIME = os.getenv("DEBUG_REGIME", "0") == "1"
+    
+    # Extract closes, highs, lows
+    closes = []
+    highs = []
+    lows = []
+    for r in rows:
+        c = r.get("close") if isinstance(r, dict) else getattr(r, "close", None)
+        h = r.get("high") if isinstance(r, dict) else getattr(r, "high", None)
+        l = r.get("low") if isinstance(r, dict) else getattr(r, "low", None)
+        if c is not None:
+            closes.append(float(c))
+            if h is not None:
+                highs.append(float(h))
+            else:
+                highs.append(float(c))  # Fallback to close if high missing
+            if l is not None:
+                lows.append(float(l))
+            else:
+                lows.append(float(c))  # Fallback to close if low missing
+    
+    # Use the simple classifier
+    regime_str = classify_regime_simple(closes, highs if highs else None, lows if lows else None)
+    
+    # Compute metrics for backward compatibility
+    close_curr = closes[-1] if closes else 0.0
+    
+    # Compute slope5 and slope20 for metrics
+    slope5 = 0.0
+    if len(closes) >= 6:
+        slope5 = (closes[-1] - closes[-6]) / closes[-6] if closes[-6] > 0 else 0.0
+    
+    slope20 = 0.0
+    if len(closes) >= 21:
+        slope20 = (closes[-1] - closes[-21]) / closes[-21] if closes[-21] > 0 else 0.0
+    
+    # Compute EMA20 slope
+    def compute_ema(prices, period):
+        """Simple EMA calculation."""
+        if len(prices) < period:
+            return None
+        alpha = 2.0 / (period + 1)
+        ema = prices[0]
+        for price in prices[1:period]:
+            ema = alpha * price + (1 - alpha) * ema
+        return ema
+    
+    ema20_slope = 0.0
+    if len(closes) >= 21:
+        ema20_window_now = closes[-20:]
+        ema20_window_prev = closes[-21:-1]
+        ema20_now = compute_ema(ema20_window_now, 20)
+        ema20_prev = compute_ema(ema20_window_prev, 20)
+        if ema20_now is not None and ema20_prev is not None and ema20_prev > 0:
+            ema20_slope = (ema20_now - ema20_prev) / ema20_prev
+    
+    # Compute HH/LL (for metrics - also computed in classify_regime_simple but we need them here)
+    hh = 0
+    ll = 0
+    if len(closes) >= 10:
+        prev_max = closes[-10]
+        prev_min = closes[-10]
+        for i in range(-9, 0):
+            if closes[i] > prev_max:
+                hh += 1
+                prev_max = closes[i]
+            if closes[i] < prev_min:
+                ll += 1
+                prev_min = closes[i]
+    
+    # Use uppercase for backward compatibility in metrics
+    HH = hh
+    LL = ll
+    
+    # Compute ATR for metrics
+    def compute_atr(rows, period):
+        """Compute Average True Range."""
+        if len(rows) < period + 1:
+            return None
+        
+        trs = []
+        for i in range(len(rows) - period, len(rows)):
+            if i == 0:
+                continue
+            h = rows[i].get("high") if isinstance(rows[i], dict) else getattr(rows[i], "high", None)
+            l = rows[i].get("low") if isinstance(rows[i], dict) else getattr(rows[i], "low", None)
+            prev_c = rows[i-1].get("close") if isinstance(rows[i-1], dict) else getattr(rows[i-1], "close", None)
+            
+            if h is None or l is None or prev_c is None:
+                continue
+            
+            tr = max(
+                float(h) - float(l),
+                abs(float(h) - float(prev_c)),
+                abs(float(l) - float(prev_c))
+            )
+            trs.append(tr)
+        
+        if not trs:
+            return None
+        return sum(trs) / len(trs)
+    
+    atr14 = compute_atr(rows, 14) if len(rows) >= 15 else None
+    atr100 = compute_atr(rows, min(100, len(rows))) if len(rows) >= 20 else None
+    
+    atr_ratio = 1.0
+    if atr14 is not None and atr100 is not None and atr100 > 0:
+        atr_ratio = atr14 / atr100
+    elif atr14 is not None and atr100 is None and len(rows) >= 20:
+        atr_long = compute_atr(rows, min(50, len(rows)))
+        if atr_long is not None and atr_long > 0:
+            atr_ratio = atr14 / atr_long
+    
+    # Compute backward-compatible metrics
+    atr_pct = (atr14 / close_curr) if atr14 is not None and close_curr > 0 else 0.0
+    vol_expansion = atr_ratio
+    slope = (closes[-1] - closes[0]) / closes[0] if len(closes) >= 2 and closes[0] > 0 else 0.0
+    
+    regime: Regime = regime_str  # type: ignore
+    
+    metrics = {
+        # New simple metrics
+        "slope5": slope5,
+        "ema20_slope": ema20_slope,
+        "HH": HH,
+        "LL": LL,
+        "atr_ratio": atr_ratio,
+        "atr14": atr14,
+        "atr100": atr100,
+        # Backward-compatible metrics
+        "atr_pct": atr_pct,
+        "vol_expansion": vol_expansion,
+        "slope": slope,
+    }
+    
+    if DEBUG_REGIME:
+        print(f"DEBUG_REGIME: slope5={slope5:.6f} ema20_slope={ema20_slope:.6f} HH={HH} LL={LL} atr_ratio={atr_ratio:.3f} → {regime}")
+    
     return {"regime": regime, "metrics": metrics}
+
+
+# Old classify_regime_simple removed - replaced by new function above
 
 
 def confirm_trend(rows: List[dict], regime: str, metrics: Dict[str, Any]) -> Tuple[bool, Dict[str, Any]]:

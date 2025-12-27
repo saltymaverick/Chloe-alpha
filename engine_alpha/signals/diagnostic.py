@@ -20,7 +20,7 @@ def main():
     
     try:
         # Get signal vector
-        result = get_signal_vector(symbol="ETHUSDT", timeframe="1h")
+        result = get_signal_vector(symbol="ETHUSDT", timeframe="15m")
         
         signal_vector = result["signal_vector"]
         raw_registry = result["raw_registry"]

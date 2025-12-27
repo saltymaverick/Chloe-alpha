@@ -1,0 +1,11 @@
+[Unit]
+Description=Run Chloe GPT Reflection v4 (Narrative) nightly
+
+[Timer]
+OnCalendar=*-*-* 03:15:00
+AccuracySec=10min
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+

@@ -18,17 +18,36 @@ def build_reflection_input() -> dict:
     """
     Build the reflection_data dict directly using the same logic as tools.reflect_prep,
     without shelling out. This ensures we always have fresh data for reflection.
+    Includes all fields from reflect_prep.main(), especially filtered_pf.
     """
     now = datetime.now(timezone.utc).isoformat()
     trades_summary = reflect_prep.summarize_recent_trades(max_trades=50)
     council_summary = reflect_prep.summarize_council_perf(max_events=200)
+    exit_quality = reflect_prep.summarize_exit_quality(max_trades=200)
+    confidence_summary = reflect_prep.summarize_confidence(max_trades=200)
+    risk_behavior = reflect_prep.summarize_risk_behavior(max_trades=200)
     loop_health = reflect_prep.load_loop_health()
+    activity_block = reflect_prep.build_activity_block()
+    
+    # Compute filtered PF (meaningful trades only) - CRITICAL for GPT to see real performance
+    from engine_alpha.core.paths import REPORTS
+    filtered_pf = reflect_prep.summarize_filtered_pf(
+        trades_path=REPORTS / "trades.jsonl",
+        threshold=0.0002,  # 0.02% cutoff, more generous than pf_doctor_filtered default
+        exit_reasons=("tp", "sl"),  # only meaningful exits
+        max_trades=None,  # read all trades to ensure we capture all meaningful closes
+    )
 
     reflection_input = {
         "timestamp": now,
         "recent_trades": trades_summary,
         "council_summary": council_summary,
+        "exit_quality": exit_quality,
+        "confidence_summary": confidence_summary,
+        "risk_behavior": risk_behavior,
         "loop_health": loop_health,
+        "activity": activity_block,
+        "filtered_pf": filtered_pf,  # CRITICAL: GPT needs this to see meaningful trades
     }
     return reflection_input
 

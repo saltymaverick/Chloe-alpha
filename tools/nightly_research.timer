@@ -1,0 +1,12 @@
+[Unit]
+Description=Chloe Nightly Research Timer - Run research daily at 2 AM UTC
+Requires=nightly_research.service
+
+[Timer]
+OnCalendar=*-*-* 02:00:00
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+
+

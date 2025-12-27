@@ -87,16 +87,41 @@ def should_run_gpt_council_analysis() -> bool:
     - number of closed trades,
     - PF over last N trades,
     - time since last GPT analysis.
-    
-    In this phase, implement a simple rule:
+
+    Phase 5I: Block tuner/GPT until meaningful sample is available
+    - Global closes >= 200
+    - All active symbols have >= 60 closes (enforcement phase)
+
+    Until then, implement a simple rule:
     - If there are at least 50 closes AND
     - PF from pf_local.json or last trades.jsonl is between 0.8 and 1.5 AND
     - no recent analysis event in the last 6 hours (check SUGGESTIONS_PATH timestamps),
     then return True, else False.
     """
-    # Check minimum trade count
+    # Phase 5I: Block tuner until meaningful sample
     closed_count = _count_closed_trades()
-    if closed_count < 50:
+
+    # Global sample check: >= 200 closes
+    if closed_count < 200:
+        return False
+
+    # Per-coin sample check: all active symbols must be in enforcement phase (>= 60 closes)
+    try:
+        from engine_alpha.risk.symbol_state import load_symbol_states
+        symbol_states = load_symbol_states()
+        if isinstance(symbol_states, dict) and "symbols" in symbol_states:
+            symbols = symbol_states["symbols"]
+            for sym, state in symbols.items():
+                if isinstance(state, dict):
+                    n_closes = state.get("n_closes_7d", 0)
+                    if n_closes < 60:
+                        return False  # At least one symbol not in enforcement phase
+    except Exception:
+        # If we can't check symbol states, be conservative and block
+        return False
+
+    # Original logic for when sample is meaningful
+    if closed_count < 50:  # This will never trigger due to 200 check above, but keeping for clarity
         return False
     
     # Check PF range

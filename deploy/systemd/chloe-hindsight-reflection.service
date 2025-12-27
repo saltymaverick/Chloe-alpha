@@ -1,0 +1,9 @@
+[Unit]
+Description=Chloe Hindsight Reflection Cycle
+After=network.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/root/Chloe-alpha
+Environment="PYTHONPATH=/root/Chloe-alpha"
+ExecStart=/root/Chloe-alpha/venv/bin/python -m tools.hindsight_cycle reflection

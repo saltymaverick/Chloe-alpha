@@ -1,0 +1,12 @@
+[Unit]
+Description=Run Chloe Shadow Promotion Rollback every 10 minutes (offset)
+
+[Timer]
+OnBootSec=3min
+OnUnitActiveSec=10min
+AccuracySec=30s
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+

@@ -1,0 +1,64 @@
+{
+  "default": {
+    "exchanges": ["bybit", "binance_futures", "okx"],
+    "max_staleness_minutes": 60
+  },
+  "symbols": {
+    "BTCUSDT": {
+      "bybit": "BTCUSDT",
+      "binance_futures": "BTCUSDT",
+      "okx": "BTC-USDT-SWAP"
+    },
+    "ETHUSDT": {
+      "bybit": "ETHUSDT",
+      "binance_futures": "ETHUSDT",
+      "okx": "ETH-USDT-SWAP"
+    },
+    "SOLUSDT": {
+      "bybit": "SOLUSDT",
+      "binance_futures": "SOLUSDT",
+      "okx": "SOL-USDT-SWAP"
+    },
+    "AVAXUSDT": {
+      "bybit": "AVAXUSDT",
+      "binance_futures": "AVAXUSDT",
+      "okx": "AVAX-USDT-SWAP"
+    },
+    "DOGEUSDT": {
+      "bybit": "DOGEUSDT",
+      "binance_futures": "DOGEUSDT",
+      "okx": "DOGE-USDT-SWAP"
+    },
+    "LINKUSDT": {
+      "bybit": "LINKUSDT",
+      "binance_futures": "LINKUSDT",
+      "okx": "LINK-USDT-SWAP"
+    },
+    "ADAUSDT": {
+      "bybit": "ADAUSDT",
+      "binance_futures": "ADAUSDT",
+      "okx": "ADA-USDT-SWAP"
+    },
+    "DOTUSDT": {
+      "bybit": "DOTUSDT",
+      "binance_futures": "DOTUSDT",
+      "okx": "DOT-USDT-SWAP"
+    },
+    "BNBUSDT": {
+      "bybit": null,
+      "binance_futures": "BNBUSDT",
+      "okx": "BNB-USDT-SWAP"
+    },
+    "XRPUSDT": {
+      "bybit": "XRPUSDT",
+      "binance_futures": "XRPUSDT",
+      "okx": "XRP-USDT-SWAP"
+    },
+    "ATOMUSDT": {
+      "bybit": "ATOMUSDT",
+      "binance_futures": "ATOMUSDT",
+      "okx": "ATOM-USDT-SWAP"
+    }
+  }
+}
+

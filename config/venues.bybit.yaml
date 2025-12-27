@@ -1,0 +1,18 @@
+# Bybit venue configuration
+environment: "live"  # API is live, but Chloe remains PAPER mode by default
+
+rest_base_url: "https://api.bybit.com"
+testnet_url: "https://api-testnet.bybit.com"
+
+symbols:
+  BTCUSDT:
+    enabled: true
+    instType: "linear_perp"
+    tdMode: "cross"
+    max_leverage: 3.0
+  ETHUSDT:
+    enabled: true
+    instType: "linear_perp"
+    tdMode: "cross"
+    max_leverage: 3.0
+

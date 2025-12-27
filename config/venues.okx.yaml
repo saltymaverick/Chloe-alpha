@@ -1,0 +1,23 @@
+# OKX venue configuration
+environment: "demo"
+
+# Regional domains:
+# - Global: https://www.okx.com
+# - US: https://us.okx.com (required for US-based accounts)
+# Set OKX_BASE_URL in .env to override
+rest_base_url: "https://www.okx.com"
+
+symbols:
+  BTC-USDT-SWAP:
+    enabled: true
+    instType: "SWAP"
+    instFamily: "BTC-USDT"
+    tdMode: "cross"
+    max_leverage: 3.0
+  ETH-USDT-SWAP:
+    enabled: true
+    instType: "SWAP"
+    instFamily: "ETH-USDT"
+    tdMode: "cross"
+    max_leverage: 3.0
+

@@ -1,0 +1,20 @@
+[Unit]
+Description=Chloe GPT Reflection v4 (Narrative) - oneshot
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=root
+WorkingDirectory=/root/Chloe-alpha
+Environment=PYTHONUNBUFFERED=1
+EnvironmentFile=-/root/Chloe-alpha/systemd/chloe.env
+# Requires:
+# - USE_GPT_REFLECTION=true
+# - USE_GPT_REFLECTION_V4=true
+# - OPENAI_API_KEY=...
+ExecStart=/bin/bash -lc 'source venv/bin/activate && python3 -m tools.run_reflection_cycle'
+
+[Install]
+WantedBy=multi-user.target
+

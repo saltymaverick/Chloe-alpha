@@ -1,0 +1,10 @@
+[Unit]
+Description=Run Chloe Reflection every 3 hours
+
+[Timer]
+OnBootSec=20m
+OnUnitActiveSec=3h
+Persistent=true
+
+[Install]
+WantedBy=timers.target

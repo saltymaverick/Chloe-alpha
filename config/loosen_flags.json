@@ -1,0 +1,23 @@
+{
+  "ETHUSDT": {
+    "soft_mode": true,
+    "min_conf_soft": 0.10,
+    "edge_floor_soft": -0.0020
+  },
+  "BTCUSDT": {
+    "soft_mode": false,
+    "min_conf_soft": 0.15,
+    "edge_floor_soft": -0.0015
+  },
+  "SOLUSDT": {
+    "soft_mode": false,
+    "min_conf_soft": 0.10,
+    "edge_floor_soft": -0.0015
+  },
+  "DOGEUSDT": {
+    "soft_mode": false,
+    "min_conf_soft": 0.05,
+    "edge_floor_soft": -0.0025
+  }
+}
+

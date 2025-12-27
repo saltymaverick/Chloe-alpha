@@ -1,0 +1,22 @@
+{
+  "chop": {
+    "enabled": false,
+    "entry_min_conf": 0.75,
+    "notes": "Disabled by tuner"
+  },
+  "high_vol": {
+    "enabled": true,
+    "entry_min_conf": 0.4799999999999999,
+    "notes": "Good positive edge (0.00083)"
+  },
+  "trend_down": {
+    "enabled": true,
+    "entry_min_conf": 0.63,
+    "notes": "Neutral edge (-0.00028), enabled for observation"
+  },
+  "trend_up": {
+    "enabled": true,
+    "entry_min_conf": 0.65,
+    "notes": "Neutral edge (-0.00040), enabled for observation"
+  }
+}

@@ -1,0 +1,96 @@
+{
+  "default": {
+    "max_staleness_minutes": 30,
+    "exchanges": [
+      "bybit",
+      "binance"
+    ]
+  },
+  "symbols": {
+    "BTCUSDT": {
+      "inst_ids": {
+        "bybit": "BTCUSDT",
+        "binance": "BTCUSDT",
+        "okx": "BTC-USDT"
+      }
+    },
+    "ETHUSDT": {
+      "inst_ids": {
+        "bybit": "ETHUSDT",
+        "binance": "ETHUSDT",
+        "okx": "ETH-USDT"
+      }
+    },
+    "SOLUSDT": {
+      "inst_ids": {
+        "bybit": "SOLUSDT",
+        "binance": "SOLUSDT",
+        "okx": "SOL-USDT"
+      }
+    },
+    "AVAXUSDT": {
+      "inst_ids": {
+        "bybit": "AVAXUSDT",
+        "binance": "AVAXUSDT",
+        "okx": "AVAX-USDT"
+      }
+    },
+    "LINKUSDT": {
+      "inst_ids": {
+        "bybit": "LINKUSDT",
+        "binance": "LINKUSDT",
+        "okx": "LINK-USDT"
+      }
+    },
+    "MATICUSDT": {
+      "inst_ids": {
+        "bybit": "MATICUSDT",
+        "binance": "MATICUSDT",
+        "okx": "MATIC-USDT"
+      }
+    },
+    "ATOMUSDT": {
+      "inst_ids": {
+        "bybit": "ATOMUSDT",
+        "binance": "ATOMUSDT",
+        "okx": "ATOM-USDT"
+      }
+    },
+    "BNBUSDT": {
+      "inst_ids": {
+        "bybit": "BNBUSDT",
+        "binance": "BNBUSDT",
+        "okx": "BNB-USDT"
+      }
+    },
+    "DOTUSDT": {
+      "inst_ids": {
+        "bybit": "DOTUSDT",
+        "binance": "DOTUSDT",
+        "okx": "DOT-USDT"
+      }
+    },
+    "ADAUSDT": {
+      "inst_ids": {
+        "bybit": "ADAUSDT",
+        "binance": "ADAUSDT",
+        "okx": "ADA-USDT"
+      }
+    },
+    "XRPUSDT": {
+      "inst_ids": {
+        "bybit": "XRPUSDT",
+        "binance": "XRPUSDT",
+        "okx": "XRP-USDT"
+      }
+    },
+    "DOGEUSDT": {
+      "inst_ids": {
+        "bybit": "DOGEUSDT",
+        "binance": "DOGEUSDT",
+        "okx": "DOGE-USDT"
+      }
+    }
+  }
+}
+

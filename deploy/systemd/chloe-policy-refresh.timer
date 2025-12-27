@@ -1,0 +1,11 @@
+[Unit]
+Description=Run Chloe policy_refresh every 5 minutes
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=5min
+Unit=chloe-policy-refresh.service
+Persistent=true
+
+[Install]
+WantedBy=timers.target

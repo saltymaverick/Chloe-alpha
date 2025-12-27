@@ -7,3 +7,28 @@ data/ohlcv/
 # editor junk
 .vscode/
 .env
+.env.real
+# secrets / env
+.env
+.env.*
+*.key
+*.pem
+*.p12
+secrets/
+config/*secret*
+config/*key*
+config/*token*
+**/credentials*
+**/*credentials*
+
+# runtime / logs / reports
+reports/
+logs/
+*.log
+*.jsonl
+
+# python
+__pycache__/
+*.pyc
+.venv/
+venv/

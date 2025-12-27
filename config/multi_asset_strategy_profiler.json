@@ -1,0 +1,213 @@
+{
+  "tier1_primary_alpha": {
+    "MATICUSDT": {
+      "regime": "high_vol",
+      "edge_bps": 18.1,
+      "best_bucket": 9,
+      "best_bucket_edge_bps": 125.1,
+      "strategy_focus": "high_confidence_breakouts",
+      "confidence_filters": {
+        "min_conf": 0.8,
+        "preferred_buckets": [8, 9],
+        "avoid_buckets": [0, 1, 2, 3]
+      },
+      "regime_filters": {
+        "enabled_regimes": ["high_vol"],
+        "disabled_regimes": ["trend_up", "trend_down", "chop"]
+      },
+      "position_sizing": {
+        "base_size_factor": 1.0,
+        "confidence_multiplier": true,
+        "max_notional_usd": 500
+      },
+      "notes": "Strongest edge asset. Focus on bucket 8-9 high-confidence breakouts."
+    },
+    "BTCUSDT": {
+      "regime": "high_vol",
+      "edge_bps": 9.8,
+      "best_bucket": 0,
+      "best_bucket_edge_bps": 65.3,
+      "strategy_focus": "low_confidence_breakouts",
+      "confidence_filters": {
+        "min_conf": 0.0,
+        "preferred_buckets": [0, 1, 2],
+        "avoid_buckets": [7, 8, 9]
+      },
+      "regime_filters": {
+        "enabled_regimes": ["high_vol"],
+        "disabled_regimes": ["trend_up", "trend_down", "chop"]
+      },
+      "position_sizing": {
+        "base_size_factor": 1.0,
+        "confidence_multiplier": false,
+        "max_notional_usd": 500
+      },
+      "notes": "Clean volatility structure. Early breakout signals work best (bucket 0)."
+    },
+    "AVAXUSDT": {
+      "regime": "trend_down",
+      "edge_bps": 8.0,
+      "best_bucket": 8,
+      "best_bucket_edge_bps": 31.7,
+      "strategy_focus": "short_collapse_continuation",
+      "confidence_filters": {
+        "min_conf": 0.5,
+        "preferred_buckets": [5, 6, 7, 8],
+        "avoid_buckets": [0, 1, 2, 3, 9]
+      },
+      "regime_filters": {
+        "enabled_regimes": ["trend_down"],
+        "disabled_regimes": ["trend_up", "high_vol", "chop"]
+      },
+      "position_sizing": {
+        "base_size_factor": 0.8,
+        "confidence_multiplier": true,
+        "max_notional_usd": 400
+      },
+      "directional_bias": "SHORT",
+      "notes": "Unique directional alpha. SHORT collapse/continuation in trend_down regime."
+    },
+    "DOGEUSDT": {
+      "regime": "high_vol",
+      "edge_bps": 6.3,
+      "best_bucket": 8,
+      "best_bucket_edge_bps": 34.6,
+      "strategy_focus": "explosive_volatility_breakouts",
+      "confidence_filters": {
+        "min_conf": 0.0,
+        "preferred_buckets": [0, 2, 6, 8],
+        "avoid_buckets": [1, 3, 4, 5, 7, 9]
+      },
+      "regime_filters": {
+        "enabled_regimes": ["high_vol"],
+        "disabled_regimes": ["trend_up", "trend_down", "chop"]
+      },
+      "position_sizing": {
+        "base_size_factor": 0.7,
+        "confidence_multiplier": true,
+        "max_notional_usd": 350
+      },
+      "notes": "Explosive breakout patterns. Bucket 0 (early) and bucket 8 (high-conf) both work."
+    }
+  },
+  "tier2_observation": {
+    "XRPUSDT": {
+      "regime": "high_vol",
+      "edge_bps": 4.7,
+      "best_bucket": 2,
+      "best_bucket_edge_bps": 35.2,
+      "strategy_focus": "selective_breakout_mean_reversion",
+      "confidence_filters": {
+        "min_conf": 0.2,
+        "preferred_buckets": [2, 6, 7, 8],
+        "avoid_buckets": [0, 1, 3, 4, 5, 9]
+      },
+      "regime_filters": {
+        "enabled_regimes": ["high_vol", "chop"],
+        "disabled_regimes": ["trend_up", "trend_down"]
+      },
+      "position_sizing": {
+        "base_size_factor": 0.5,
+        "confidence_multiplier": true,
+        "max_notional_usd": 250
+      },
+      "notes": "Weak positive edge. Selective buckets only. Mean-reversion in chop|8 works (+49.4 bps)."
+    },
+    "SOLUSDT": {
+      "regime": "high_vol",
+      "edge_bps": 2.2,
+      "best_bucket": 6,
+      "best_bucket_edge_bps": 55.3,
+      "strategy_focus": "mid_confidence_breakout_continuation",
+      "confidence_filters": {
+        "min_conf": 0.5,
+        "preferred_buckets": [6],
+        "avoid_buckets": [0, 1, 2, 3, 4, 5, 7, 8, 9]
+      },
+      "regime_filters": {
+        "enabled_regimes": ["high_vol", "trend_up"],
+        "disabled_regimes": ["trend_down", "chop"]
+      },
+      "position_sizing": {
+        "base_size_factor": 0.5,
+        "confidence_multiplier": true,
+        "max_notional_usd": 250
+      },
+      "notes": "Weak overall edge but bucket 6 is very strong (+55.3 bps). Very selective."
+    },
+    "ETHUSDT": {
+      "regime": "high_vol",
+      "edge_bps": 1.6,
+      "strategy_focus": "benchmark_learner",
+      "confidence_filters": {
+        "min_conf": 0.55,
+        "preferred_buckets": "all",
+        "avoid_buckets": []
+      },
+      "regime_filters": {
+        "enabled_regimes": ["high_vol", "trend_down"],
+        "disabled_regimes": ["trend_up", "chop"]
+      },
+      "position_sizing": {
+        "base_size_factor": 1.0,
+        "confidence_multiplier": true,
+        "max_notional_usd": 500
+      },
+      "notes": "Currently trading in paper. Benchmark asset for calibration."
+    }
+  },
+  "tier3_research_only": {
+    "BNBUSDT": {
+      "overall_edge_bps": -0.2,
+      "best_selective_bucket": "chop|7",
+      "best_selective_edge_bps": 34.0,
+      "notes": "Selective buckets only. No broad regime edge. Keep in research-only mode."
+    },
+    "DOTUSDT": {
+      "overall_edge_bps": -0.8,
+      "best_selective_bucket": "chop|4",
+      "best_selective_edge_bps": 24.2,
+      "notes": "Selective buckets only. No broad regime edge. Keep in research-only mode."
+    },
+    "ADAUSDT": {
+      "overall_edge_bps": -4.7,
+      "best_selective_bucket": "chop|8",
+      "best_selective_edge_bps": 88.0,
+      "notes": "Very strong selective buckets but negative overall. Keep in research-only mode."
+    },
+    "LINKUSDT": {
+      "overall_edge_bps": -6.1,
+      "best_selective_bucket": "high_vol|6",
+      "best_selective_edge_bps": 34.4,
+      "notes": "Selective buckets only. No broad regime edge. Keep in research-only mode."
+    },
+    "ATOMUSDT": {
+      "overall_edge_bps": -8.7,
+      "best_selective_bucket": "high_vol|8",
+      "best_selective_edge_bps": 81.3,
+      "notes": "Very strong selective buckets but negative overall. Keep in research-only mode."
+    }
+  },
+  "rollout_plan": {
+    "phase_2_1_immediate": {
+      "assets": ["BTCUSDT", "MATICUSDT", "AVAXUSDT", "DOGEUSDT"],
+      "mode": "paper",
+      "activation_order": 1,
+      "notes": "Enable one at a time after ETHUSDT stabilizes (10-20+ trades)"
+    },
+    "phase_2_2_observation": {
+      "assets": ["XRPUSDT", "SOLUSDT"],
+      "mode": "observation",
+      "activation_order": 2,
+      "notes": "Enable after Tier 1 proves stable. Use tight confidence filters."
+    },
+    "phase_2_3_research_only": {
+      "assets": ["BNBUSDT", "DOTUSDT", "ADAUSDT", "LINKUSDT", "ATOMUSDT"],
+      "mode": "research_only",
+      "activation_order": null,
+      "notes": "Monitor for future opportunities. Do not enable trading."
+    }
+  }
+}
+
+

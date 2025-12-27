@@ -1,0 +1,11 @@
+[Unit]
+Description=Run Chloe Orchestrator Fast every 5 minutes
+
+[Timer]
+OnBootSec=150s
+OnCalendar=*:0/5
+RandomizedDelaySec=60
+Persistent=true
+
+[Install]
+WantedBy=timers.target

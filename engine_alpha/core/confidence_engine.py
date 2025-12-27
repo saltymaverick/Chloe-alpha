@@ -1,12 +1,16 @@
 """
 Confidence engine - Phase 2
 Computes bucket scores and council-aggregated confidence.
+
+Module 5 Refactor: New Flow/Vol/Micro/Cross aggregation with regime + drift penalties.
 """
 
 import json
 import yaml
+import math
 from pathlib import Path
 from typing import Dict, Any, List, Optional
+from dataclasses import dataclass
 
 from engine_alpha.core.regime import RegimeClassifier, get_regime
 
@@ -28,26 +32,68 @@ SIGNAL_BUCKETS = {
     "Spread_Normalized": ["timing"],
 }
 
-# Phase 55: Regime-specific bucket masking (PAPER only)
-# Defines which buckets are allowed to vote in each regime
-# Buckets not in the mask are excluded from council aggregation
-# Weights are renormalized over only the active buckets
+# Order of buckets we expect from the signal engine
+BUCKET_ORDER = ["momentum", "meanrev", "flow", "positioning", "timing", "sentiment", "onchain_flow"]
+
+# Per-regime bucket weights for aggregation.
+# These are *relative* weights; they will be normalized in aggregation.
+REGIME_BUCKET_WEIGHTS = {
+    "trend_up": {
+        "momentum": 0.45,
+        "positioning": 0.30,
+        "flow": 0.15,
+        "timing": 0.10,
+        "meanrev": 0.0,
+        "sentiment": 0.0,
+        "onchain_flow": 0.0,
+    },
+    "trend_down": {
+        "momentum": 0.45,
+        "positioning": 0.30,
+        "flow": 0.15,
+        "timing": 0.10,
+        "meanrev": 0.0,
+        "sentiment": 0.0,
+        "onchain_flow": 0.0,
+    },
+    "high_vol": {
+        "momentum": 0.40,
+        "flow": 0.30,
+        "positioning": 0.15,
+        "timing": 0.10,
+        "meanrev": 0.05,
+        "sentiment": 0.0,
+        "onchain_flow": 0.0,
+    },
+    "chop": {
+        "meanrev": 0.50,
+        "timing": 0.25,
+        "flow": 0.20,
+        "momentum": 0.05,
+        "positioning": 0.0,
+        "sentiment": 0.0,
+        "onchain_flow": 0.0,
+    },
+}
+
+# Phase 55.3: Regime-Purified Averaging (PAPER only)
+# Hard mask: ONLY these buckets vote in each regime
+# This prevents confidence dilution from buckets that don't apply to the regime
 # None = use all buckets (no masking)
 REGIME_BUCKET_MASK = {
-    # Trend up/down: emphasize momentum, positioning, flow (exclude meanrev counter-trend, timing less critical)
-    "trend_up": ["momentum", "positioning", "flow"],
-    "trend_down": ["momentum", "positioning", "flow"],  # Exclude meanrev (counter-trend)
-    # Panic down: very strict - only trend-followers (momentum + positioning)
-    # Flow can be contradictory in panic moves (unpredictable)
-    "panic_down": ["momentum", "positioning"],
-    # High vol: allow broad voting (None = use all buckets)
-    "high_vol": None,
-    # Chop: mean-reversion, timing, some flow (exclude momentum trend-chasing, positioning less relevant)
+    # Trend up/down: ONLY momentum + positioning (flow removed - it dilutes in clear trends)
+    "trend_up": ["momentum", "positioning"],
+    "trend_down": ["momentum", "positioning"],
+    # Panic down: ONLY momentum (pure trend-following, no positioning noise)
+    "panic_down": ["momentum"],
+    # Chop: ONLY meanrev + timing + flow (momentum excluded - trend-chasing doesn't work in chop)
     "chop": ["meanrev", "timing", "flow"],
+    # High vol: ONLY momentum + flow (volatility-driven, not mean-reversion)
+    "high_vol": ["momentum", "flow"],
     # Fallback for legacy "trend" regime
-    "trend": ["momentum", "positioning", "flow"],
+    "trend": ["momentum", "positioning"],
 }
-# Note: sentiment and onchain_flow are not included in masks yet (they have 0 weight anyway)
+# Note: sentiment and onchain_flow are not included in masks (they have 0 weight anyway)
 
 # Council weights by regime
 # Loaded from engine_alpha/config/council_weights.yaml if available, otherwise use hardcoded defaults
@@ -164,6 +210,11 @@ COUNCIL_WEIGHTS = _load_council_weights()
 
 # Direction threshold
 DIR_THRESHOLD = 0.05
+
+# Number of decimal places to keep for final confidence values.
+# This reduces floating-point noise so tiny differences (e.g. 0.449999 vs 0.450001)
+# don't cause different entry/exit decisions in live vs backtest.
+CONFIDENCE_DECIMALS = 2
 
 
 def _load_signal_registry() -> Dict[str, Any]:
@@ -315,22 +366,9 @@ def apply_bucket_mask(weights: Dict[str, float], regime: str, is_paper_mode: boo
     # Determine active bucket set (only buckets in mask)
     active_buckets = [name for name in weights.keys() if name in mask]
     
-    # Phase 55.2: Direction-filtered flow bucket in trends (PAPER only)
-    # In trend regimes, only include flow if its direction agrees with the trend
-    import os
-    if bucket_dirs is not None and regime in ("trend_up", "trend_down"):
-        flow_dir = bucket_dirs.get("flow", 0)
-        trend_dir = 1 if regime == "trend_up" else -1
-        
-        if "flow" in active_buckets:
-            if flow_dir != trend_dir:
-                # Exclude counter-trend or neutral flow in trend regimes
-                active_buckets = [name for name in active_buckets if name != "flow"]
-                if os.getenv("DEBUG_SIGNALS", "0") == "1":
-                    print(f"SIGNAL-MASK: excluded flow in regime={regime} due to counter-trend dir={flow_dir}")
-            else:
-                if os.getenv("DEBUG_SIGNALS", "0") == "1":
-                    print(f"SIGNAL-MASK: kept flow in regime={regime} with agreeing dir={flow_dir}")
+    # Phase 55.3: Hard mask - flow is already excluded from trend_up/trend_down in REGIME_BUCKET_MASK
+    # Phase 55.2 direction filtering is no longer needed since we use hard masks
+    # (Keeping this comment for reference, but direction filtering removed)
     
     # Edge case: if after masking we end up with no buckets, fall back to all buckets
     if not active_buckets:
@@ -387,29 +425,73 @@ def _compute_council_aggregation(bucket_dirs: Dict[str, int], bucket_confs: Dict
     
     base_weights = current_weights.get(regime_for_weights, current_weights["chop"])
     
-    # Phase 55: Apply bucket mask and renormalize (PAPER only)
-    # Phase 55.2: Pass bucket_dirs for direction-filtered flow in trends
-    weights = apply_bucket_mask(base_weights, regime, is_paper_mode, bucket_dirs=bucket_dirs)
+    # Phase 55.3: Apply hard regime mask (PAPER only)
+    # Get the mask for this regime - this is the authoritative list of buckets that should vote
+    mask = REGIME_BUCKET_MASK.get(regime, None) if is_paper_mode else None
     
-    # Phase 55: Debug logging for bucket masking
-    if is_paper_mode and os.getenv("DEBUG_SIGNALS", "0") == "1":
-        mask = REGIME_BUCKET_MASK.get(regime, None)
-        if mask is not None:
-            active_buckets = [name for name in weights.keys() if weights.get(name, 0.0) > 0]
-            print(f"SIGNAL-MASK: regime={regime} active_buckets={active_buckets}")
+    # Phase 55.3: Filter bucket_dirs and bucket_confs to ONLY include masked buckets
+    # This ensures masked buckets don't exist at all during aggregation
+    if mask is not None and is_paper_mode:
+        # Create filtered versions that only contain masked buckets
+        filtered_bucket_dirs = {name: bucket_dirs.get(name, 0) for name in mask if name in bucket_dirs}
+        filtered_bucket_confs = {name: bucket_confs.get(name, 0.0) for name in mask if name in bucket_confs}
+        bucket_dirs = filtered_bucket_dirs
+        bucket_confs = filtered_bucket_confs
+        
+        # Debug logging: show which buckets were removed
+        if os.getenv("DEBUG_SIGNALS", "0") == "1":
+            all_buckets = ["momentum", "meanrev", "flow", "positioning", "timing", "sentiment", "onchain_flow"]
+            active_buckets = list(mask)
+            removed_buckets = [name for name in all_buckets if name not in active_buckets]
+            print(f"SIGNAL-PURIFY: regime={regime} active={active_buckets} removed={removed_buckets}")
     
-    # Compute final score: Σ (council_weight_i * dir_i * conf_i)
-    # Phase 54: Include sentiment and onchain_flow buckets (they'll have 0 weight until enabled)
-    final_score = 0.0
-    for bucket in ["momentum", "meanrev", "flow", "positioning", "timing", "sentiment", "onchain_flow"]:
-        weight = weights.get(bucket, 0.0)
+    # Use regime-specific weights from base_weights (which already has correct regime mapping applied)
+    # base_weights contains the correct weights for the mapped regime (e.g., trend_down for panic_down)
+    # and may contain mutated weights from backtest experiments if COUNCIL_WEIGHTS_FILE is set
+    regime_weights = base_weights
+    
+    # Compute weighted aggregation using regime-specific weights
+    weighted_score = 0.0
+    weight_sum = 0.0
+    debug_buckets: List[str] = []
+    
+    for bucket in BUCKET_ORDER:
         dir_val = bucket_dirs.get(bucket, 0)
         conf_val = bucket_confs.get(bucket, 0.0)
-        final_score += weight * dir_val * conf_val
+        w = float(regime_weights.get(bucket, 0.0))
+        
+        # If bucket has no direction or no weight, skip
+        if dir_val == 0 or w <= 0.0 or conf_val <= 0.0:
+            debug_buckets.append(f"{bucket}:dir={dir_val},conf={conf_val:.2f},w={w:.2f}")
+            continue
+        
+        score = dir_val * conf_val
+        weighted_score += w * score
+        weight_sum += w
+        debug_buckets.append(f"{bucket}:dir={dir_val},conf={conf_val:.2f},w={w:.2f}")
     
-    # Compute final direction and confidence
-    final_dir = 1 if final_score > 0 else (-1 if final_score < 0 else 0)
-    final_conf = max(0.0, min(1.0, abs(final_score)))
+    if weight_sum <= 0.0:
+        final_score = 0.0
+    else:
+        final_score = weighted_score / weight_sum
+    
+    if final_score > 0:
+        final_dir = 1
+    elif final_score < 0:
+        final_dir = -1
+    else:
+        final_dir = 0
+    
+    final_conf = abs(final_score)
+    # Round to configured decimals
+    final_conf = round(final_conf, CONFIDENCE_DECIMALS)
+    
+    # Debug logging for bucket breakdown
+    if is_paper_mode and os.getenv("DEBUG_SIGNALS", "0") == "1":
+        print(
+            f"BUCKET-AGG: regime={regime} score={final_score:.4f} weight_sum={weight_sum:.4f} "
+            f"final_dir={final_dir} final_conf={final_conf:.2f}"
+        )
     
     return {
         "dir": final_dir,
@@ -419,7 +501,8 @@ def _compute_council_aggregation(bucket_dirs: Dict[str, int], bucket_confs: Dict
 
 
 def decide(signal_vector: List[float], raw_registry: Dict[str, Any],
-           classifier: Optional[RegimeClassifier] = None) -> Dict[str, Any]:
+           classifier: Optional[RegimeClassifier] = None,
+           regime_override: Optional[str] = None) -> Dict[str, Any]:
     """
     Pure function to compute regime, bucket outputs, and final decision.
     
@@ -427,6 +510,7 @@ def decide(signal_vector: List[float], raw_registry: Dict[str, Any],
         signal_vector: Normalized signal vector
         raw_registry: Raw signal registry
         classifier: Optional RegimeClassifier instance
+        regime_override: Optional regime string to use instead of computing from signals
     
     Returns:
         Dictionary with "regime", "buckets", and "final" keys
@@ -435,9 +519,12 @@ def decide(signal_vector: List[float], raw_registry: Dict[str, Any],
     signal_registry_data = _load_signal_registry()
     gates_config = _load_gates_config()
     
-    # Get regime
-    regime_result = get_regime(signal_vector, raw_registry, classifier)
-    regime = regime_result["regime"]
+    # Get regime (use override if provided, otherwise compute from signals)
+    if regime_override:
+        regime = regime_override
+    else:
+        regime_result = get_regime(signal_vector, raw_registry, classifier)
+        regime = regime_result["regime"]
     
     # Compute bucket scores
     bucket_scores = _compute_bucket_scores(signal_vector, raw_registry, signal_registry_data)
@@ -462,17 +549,287 @@ def decide(signal_vector: List[float], raw_registry: Dict[str, Any],
     is_paper_mode = os.getenv("MODE", "PAPER").upper() == "PAPER"
     final_result = _compute_council_aggregation(bucket_dirs, bucket_confs, regime, is_paper_mode)
     
+    # Map regime to gates key (same logic as weights mapping)
+    # gates.yaml uses "trend" for both trend_up and trend_down
+    regime_for_gates = regime
+    if regime in ("trend_up", "trend_down", "panic_down"):
+        regime_for_gates = "trend"
+    
+    entry_min_conf_dict = gates_config["entry_exit"]["entry_min_conf"]
+    entry_min_conf = entry_min_conf_dict.get(regime_for_gates, entry_min_conf_dict.get("chop", 0.72))
+    
     return {
         "regime": regime,
         "buckets": buckets,
         "final": {
             "dir": final_result["dir"],
             "conf": final_result["conf"],
+            "score": final_result["final_score"],  # Expose final_score for Phase 54 adjustments
         },
         "gates": {
-            "entry_min_conf": gates_config["entry_exit"]["entry_min_conf"].get(regime, 0.58),
+            "entry_min_conf": entry_min_conf,
             "exit_min_conf": gates_config["entry_exit"]["exit_min_conf"],
             "reverse_min_conf": gates_config["entry_exit"]["reverse_min_conf"],
         },
     }
+
+
+# ============================================================================
+# Module 5: New Confidence Engine (Flow/Vol/Micro/Cross + Regime + Drift)
+# ============================================================================
+
+@dataclass
+class ConfidenceState:
+    """
+    Confidence state with component breakdown and penalties.
+    
+    Attributes:
+        confidence: Final confidence score [0, 1]
+        components: Component scores for each signal family
+        penalties: Applied penalties (regime, drift)
+    """
+    confidence: float
+    components: Dict[str, float]
+    penalties: Dict[str, float]
+
+
+# Base weights for signal families (Module 5 spec)
+FLOW_WEIGHT = 0.40        # Highest weight (flow is most predictive)
+VOL_WEIGHT = 0.25         # Medium weight
+MICRO_WEIGHT = 0.20       # Medium/low weight
+CROSS_WEIGHT = 0.15       # Medium/low weight
+
+# Drift penalty coefficient
+DRIFT_PENALTY_ALPHA = 0.5  # Multiplier for drift_score in penalty calculation (softened from 1.0)
+
+
+def _load_signal_registry_for_categories() -> Dict[str, str]:
+    """
+    Load signal registry and return mapping: signal_name -> category.
+    
+    Returns:
+        Dict mapping signal names to their categories
+    """
+    registry_path = Path(__file__).parent.parent / "signals" / "signal_registry.json"
+    if not registry_path.exists():
+        return {}
+    
+    try:
+        with open(registry_path, "r") as f:
+            registry = json.load(f)
+            signals = registry.get("signals", [])
+            return {sig["name"]: sig.get("category", "unknown") for sig in signals}
+    except Exception:
+        return {}
+
+
+def _group_signals_by_category(raw_registry: Dict[str, Dict[str, Any]]) -> Dict[str, List[Dict[str, Any]]]:
+    """
+    Group signals from raw_registry by category (flow, volatility, microstructure, cross_asset).
+    
+    Args:
+        raw_registry: Dict with signal_id -> signal_dict (with raw, z_score, direction_prob, confidence, drift)
+    
+    Returns:
+        Dict: {category: [signal_dicts]}
+    """
+    signal_to_category = _load_signal_registry_for_categories()
+    
+    grouped = {
+        "flow": [],
+        "volatility": [],
+        "microstructure": [],
+        "cross_asset": [],
+    }
+    
+    for signal_id, signal_data in raw_registry.items():
+        if not isinstance(signal_data, dict):
+            continue
+        
+        # Skip special keys
+        if signal_id.startswith("_"):
+            continue
+        
+        # Check if this is a flow_dict type signal
+        if signal_data.get("type") == "flow_dict":
+            # Get category from registry or from signal_data itself
+            category = signal_data.get("category") or signal_to_category.get(signal_id, "unknown")
+            
+            # Normalize category name
+            category_lower = str(category).lower()
+            if category_lower == "flow":
+                grouped["flow"].append(signal_data)
+            elif category_lower == "volatility":
+                grouped["volatility"].append(signal_data)
+            elif category_lower == "microstructure":
+                grouped["microstructure"].append(signal_data)
+            elif category_lower == "cross_asset":
+                grouped["cross_asset"].append(signal_data)
+    
+    return grouped
+
+
+def _compute_group_score(signals: List[Dict[str, Any]]) -> float:
+    """
+    Compute a normalized group score from a list of signals.
+    
+    Uses average of confidence fields, normalized to [0, 1].
+    
+    Args:
+        signals: List of signal dicts with confidence field
+    
+    Returns:
+        Group score in [0, 1]
+    """
+    if not signals:
+        return 0.0
+    
+    confidences = []
+    for sig in signals:
+        conf = sig.get("confidence", 0.0)
+        if isinstance(conf, (int, float)):
+            confidences.append(float(conf))
+    
+    if not confidences:
+        return 0.0
+    
+    # Average confidence
+    avg_conf = sum(confidences) / len(confidences)
+    
+    # Also consider z_score magnitude as a confidence boost
+    z_scores = []
+    for sig in signals:
+        z = sig.get("z_score", 0.0)
+        if isinstance(z, (int, float)):
+            z_scores.append(abs(float(z)))
+    
+    if z_scores:
+        avg_z_mag = sum(z_scores) / len(z_scores)
+        # Boost confidence if z-scores are high (strong signals)
+        z_boost = min(0.2, avg_z_mag / 3.0)  # Max 0.2 boost
+        avg_conf = min(1.0, avg_conf + z_boost)
+    
+    return max(0.0, min(1.0, avg_conf))
+
+
+def _compute_regime_penalty(regime_state: Dict[str, Any], signal_direction_hint: float) -> float:
+    """
+    Compute regime penalty based on regime state and signal direction.
+    
+    Simple rule:
+    - CHOP regime: mildly penalize trend-following confidence
+    - Supportive regimes: minimal penalty
+    
+    Args:
+        regime_state: Dict with "primary" key (regime name)
+        signal_direction_hint: Aggregate direction hint from signals (-1 to +1)
+    
+    Returns:
+        Penalty multiplier in [0, 1]
+    """
+    primary = regime_state.get("primary", "chop")
+    
+    # Map regime names (handle variations)
+    primary_lower = str(primary).lower()
+    
+    if primary_lower in ["chop"]:
+        # CHOP: penalize trend-following confidence
+        # If signals are strongly directional (high abs(signal_direction_hint)), reduce confidence
+        direction_penalty = 1.0 - min(0.3, abs(signal_direction_hint) * 0.3)
+        return max(0.7, direction_penalty)  # At least 0.7 penalty in CHOP
+    
+    elif primary_lower in ["trend_up", "trend_down", "high_vol"]:
+        # Supportive regimes: minimal penalty
+        return 1.0
+    
+    else:
+        # Unknown/neutral: slight penalty
+        return 0.9
+
+
+def compute_confidence(
+    raw_registry: Dict[str, Dict[str, Any]],
+    regime_state: Dict[str, Any],
+    drift_state: Dict[str, Any],
+) -> ConfidenceState:
+    """
+    Combine flow, volatility, microstructure, and cross-asset signals
+    into a single confidence score (0..1) plus component breakdown.
+    
+    Module 5: New aggregation using Flow/Vol/Micro/Cross families.
+    
+    Args:
+        raw_registry: Dict with signal_id -> signal_dict (with raw, z_score, direction_prob, confidence, drift)
+        regime_state: Dict with "primary" key (regime name) and optionally "scores"
+        drift_state: Dict with "drift_score" key (0-1, higher = worse)
+    
+    Returns:
+        ConfidenceState with confidence, components, and penalties
+    """
+    # Group signals by category
+    grouped = _group_signals_by_category(raw_registry)
+    
+    # Compute group scores
+    flow_score = _compute_group_score(grouped["flow"])
+    vol_score = _compute_group_score(grouped["volatility"])
+    micro_score = _compute_group_score(grouped["microstructure"])
+    cross_score = _compute_group_score(grouped["cross_asset"])
+    
+    # Compute base confidence as weighted average
+    base_confidence = (
+        FLOW_WEIGHT * flow_score +
+        VOL_WEIGHT * vol_score +
+        MICRO_WEIGHT * micro_score +
+        CROSS_WEIGHT * cross_score
+    )
+    
+    # Normalize weights (in case they don't sum to 1.0)
+    total_weight = FLOW_WEIGHT + VOL_WEIGHT + MICRO_WEIGHT + CROSS_WEIGHT
+    if total_weight > 0:
+        base_confidence = base_confidence / total_weight
+    
+    base_confidence = max(0.0, min(1.0, base_confidence))
+    
+    # Compute aggregate direction hint from signals (for regime penalty)
+    signal_direction_hint = 0.0
+    all_signals = grouped["flow"] + grouped["volatility"] + grouped["microstructure"] + grouped["cross_asset"]
+    if all_signals:
+        direction_hints = []
+        for sig in all_signals:
+            dir_prob = sig.get("direction_prob", {})
+            if isinstance(dir_prob, dict):
+                up_prob = dir_prob.get("up", 0.5)
+                down_prob = dir_prob.get("down", 0.5)
+                # Map to [-1, 1]: up_prob=1 -> +1, down_prob=1 -> -1
+                hint = up_prob - down_prob
+                direction_hints.append(hint)
+        
+        if direction_hints:
+            signal_direction_hint = sum(direction_hints) / len(direction_hints)
+    
+    # Apply regime penalty
+    penalty_regime = _compute_regime_penalty(regime_state, signal_direction_hint)
+    
+    # Apply drift penalty
+    drift_score = float(drift_state.get("drift_score", 0.0))
+    penalty_drift = max(0.0, 1.0 - DRIFT_PENALTY_ALPHA * drift_score)
+    penalty_drift = max(0.0, min(1.0, penalty_drift))
+    
+    # Final confidence
+    final_confidence = base_confidence * penalty_regime * penalty_drift
+    final_confidence = max(0.0, min(1.0, final_confidence))
+    
+    return ConfidenceState(
+        confidence=final_confidence,
+        components={
+            "flow": flow_score,
+            "volatility": vol_score,
+            "microstructure": micro_score,
+            "cross_asset": cross_score,
+        },
+        penalties={
+            "regime": penalty_regime,
+            "drift": penalty_drift,
+        },
+    )
 

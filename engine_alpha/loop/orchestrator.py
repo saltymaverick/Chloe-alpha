@@ -36,6 +36,7 @@ PF_LIVE_PATH = REPORTS / "pf_local_live.json"
 PF_NORM_PATH = REPORTS / "pf_local_norm.json"
 PA_PATH = REPORTS / "pa_status.json"
 TRADES_PATH = REPORTS / "trades.jsonl"
+CAPITAL_PROTECTION_PATH = REPORTS / "risk" / "capital_protection.json"
 SNAPSHOT_PATH = REPORTS / "orchestrator_snapshot.json"
 LOG_PATH = REPORTS / "orchestrator_log.jsonl"
 
@@ -158,6 +159,7 @@ def _eval_policy() -> Dict[str, Any]:
     risk = _read_json(RISK_PATH)
     pf = _read_json(PF_LEGACY_PATH)
     pa_status = _read_json(PA_PATH)
+    capital_protection = _read_json(CAPITAL_PROTECTION_PATH)
 
     recommendation = gov.get("rec") or gov.get("recommendation") or "REVIEW"
     sci = gov.get("sci", 0.5)
@@ -185,6 +187,15 @@ def _eval_policy() -> Dict[str, Any]:
     allow_pa = bool(policy_eval.get("allow_pa", False)) and risk_ok
     reason = policy_eval.get("reason", "paper-only")
     inputs_override = policy_eval.get("inputs", {})
+    capital_mode = (
+        capital_protection.get("mode")
+        or (capital_protection.get("global") or {}).get("mode")
+        or "unknown"
+    )
+
+    if capital_mode == "halt_new_entries":
+        allow_opens = False
+        reason = f"capital_mode=halt_new_entries; {reason}"
     
     # PAPER-mode override: allow opens when there are no closed trades yet
     # (unless in a hard-block mode; risk_ok is respected but None risk_band is acceptable for fresh reset)
@@ -231,6 +242,7 @@ def _eval_policy() -> Dict[str, Any]:
             "count": weighted_count,
             "loss_streak": loss_streak,
             "pa_armed": pa_armed,
+            "capital_mode": capital_mode,
         },
         "policy": {
             "allow_opens": bool(allow_opens),

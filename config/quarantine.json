@@ -1,0 +1,16 @@
+{
+  "enabled": true,
+  "window_days": 30,
+  "max_symbols": 2,
+  "min_negative_pnl_usd": 0.05,
+  "min_contribution_pct": 20.0,
+  "cooldown_hours": 24,
+  "modes_apply": ["de_risk", "halt_new_entries"],
+  "actions": {
+    "block_new_entries": true,
+    "reduce_weight": true,
+    "weight_floor": 0.00,
+    "weight_multiplier": 0.00
+  }
+}
+

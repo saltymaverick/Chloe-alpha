@@ -18,7 +18,7 @@
   - ✅ `from engine_alpha.signals import signal_processor`
   - ❌ relative imports
 
-**Defaults:** MODE=PAPER; symbol/timeframe ETHUSDT/1h.
+**Defaults:** MODE=PAPER; symbol/timeframe ETHUSDT/15m.
 **PA gates:** 0.08/0.05/180. **SAFE MODE:** PF_local<0.95 or 7-loss streak.
 
 **Signal Blueprint (MVP 12):**

@@ -1,0 +1,118 @@
+# ============================================================
+# CHLOE ALPHA — PROJECT RULES FOR CURSOR
+# ============================================================
+# DO NOT MODIFY CHLOE'S CORE ENGINE BEHAVIOR.
+# DO NOT MODIFY TRADING LOGIC UNLESS EXPLICITLY INSTRUCTED.
+# DO NOT TOUCH SANITY GATES, RISK ENGINE, OR SWARM LOGIC.
+# DASHBOARD IS READ-ONLY — NEVER EXECUTE TRADES OR MODIFY CONFIGS.
+# ============================================================
+
+# ------------------------
+# PROJECT ARCHITECTURE
+# ------------------------
+Chloe Alpha is a multi-module quant trading engine.
+
+ROOT DIRECTORY:
+- engine_alpha/
+
+CORE SUBSYSTEMS (DO NOT BREAK):
+- engine_alpha/core/               (Chloe's brain, decision logic)
+- engine_alpha/loop/               (run_step_live, execution, risk gates)
+- engine_alpha/reflect/            (nightly research, weighted analyzer/tuner)
+- engine_alpha/risk/               (PF, DD, sanity gates, autoscaler)
+- engine_alpha/mirror/             (wallet inference, mirror engine)
+- engine_alpha/swarm/              (supervisory system: sentinel/audit/challenger)
+- engine_alpha/exchange/           (paper & real exchange clients)
+- engine_alpha/config/             (wallets, thresholds, gates, config_loader)
+
+DATA PATHS (DO NOT CHANGE):
+- reports/
+- reports/research/
+- logs/
+- data/ohlcv/
+
+IMPORTANT FILES (ALWAYS EXISTING):
+- reports/pf_local.json
+- reports/loop_health.json
+- reports/research/hybrid_research_dataset.parquet
+- reports/research/multi_horizon_stats.json
+- reports/research/strategy_strength.json
+- config/confidence_map.json
+- config/entry_thresholds.json
+- reports/research/swarm_audit_log.jsonl
+- reports/research/swarm_research_verifier.jsonl
+- reports/research/swarm_challenger_log.jsonl
+- reports/research/swarm_sentinel_report.json
+
+# -----------------------------------------------
+# DASHBOARD RULES — STREAMLIT QUANT DASHBOARD
+# -----------------------------------------------
+The dashboard lives under:
+- engine_alpha/dashboard/
+
+ENTRY POINT:
+- engine_alpha/dashboard/dashboard.py
+
+PANELS (each has its own render()):
+- home_panel.py
+- live_panel.py
+- research_panel.py
+- swarm_panel.py
+- risk_panel.py
+- wallet_panel.py
+- operator_panel.py
+- system_panel.py
+
+SHARED COMPONENTS:
+- engine_alpha/dashboard/components/
+
+RULES:
+- The dashboard is STRICTLY READ-ONLY.
+- Dashboard MUST NOT place trades, alter configs, or call trading functions.
+- Dashboard reads JSON, Parquet, or logs only.
+- Visual improvements are allowed (charts, heatmaps, tables).
+- New panels must follow the modular structure: file with render().
+
+# -----------------------------------------------
+# WHAT CURSOR MUST NEVER MODIFY
+# -----------------------------------------------
+- Any trading logic under engine_alpha/loop/
+- gate_and_size_trade(), sanity gates, risk_autoscaler
+- execute_trade logic
+- run_step_live logic (unless explicitly requested)
+- nightly research pipeline output structures
+- SWARM supervisory modules (sentinel, audit loop, research verifier, challenger)
+- wallet system & exchange client logic
+- PF or DD computation
+- mirror engine
+- file paths used by analyzer/tuner/research
+
+# -----------------------------------------------
+# ALLOWED MODIFICATIONS
+# -----------------------------------------------
+Cursor MAY:
+- Improve dashboard visuals
+- Add new dashboard panels
+- Interpret and visualize Chloe's data files
+- Extend `tools/` scripts when instructed
+- Add helper utilities that do NOT affect core trading
+
+Cursor MAY NOT:
+- Change data schemas for analyzer/tuner
+- Change JSON formats in reports/
+- Change threshold or PF logic automatically
+- Add hidden side effects to read-only panels
+
+# -----------------------------------------------
+# HOW TO ASK FOR HELP (GUIDELINES FOR THE USER)
+# -----------------------------------------------
+When requesting code updates:
+- Be explicit about the file and panel you want changed.
+- Say "Dashboard only, read-only" to avoid affecting the engine.
+- For logic changes, specify exact modules you want adjusted.
+
+# -----------------------------------------------
+# END — CHLOE ALPHA PROJECT RULESET
+# -----------------------------------------------
+
+

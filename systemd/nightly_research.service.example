@@ -1,0 +1,19 @@
+[Unit]
+Description=Chloe Nightly Research - oneshot
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=root
+WorkingDirectory=/root/Chloe-alpha
+Environment=PYTHONUNBUFFERED=1
+EnvironmentFile=-/root/Chloe-alpha/systemd/chloe.env
+# Pick ONE:
+# - engine module (recommended): engine_alpha.reflect.nightly_research
+# - tools orchestrator: tools.nightly_research_cycle
+ExecStart=/bin/bash -lc 'source venv/bin/activate && python3 -m engine_alpha.reflect.nightly_research'
+
+[Install]
+WantedBy=multi-user.target
+

@@ -11,6 +11,7 @@ from typing import Any, Dict, List
 import yaml
 
 from engine_alpha.core.paths import REPORTS, CONFIG
+from engine_alpha.reflect.trade_sanity import filter_corrupted
 
 REPORTS.mkdir(parents=True, exist_ok=True)
 
@@ -34,7 +35,8 @@ def _read_trades(trades_path: Path) -> List[Dict]:
                 out.append(json.loads(line))
             except Exception:
                 continue
-    return out
+    # Filter corrupted events (analytics-only)
+    return filter_corrupted(out)
 
 
 def _load_accounting() -> Dict[str, float]:
@@ -80,14 +82,33 @@ def _write_json(path: Path, payload: Dict[str, Any]) -> None:
 
 
 def update_pf_reports(trades_path: Path, out_pf_local: Path, out_pf_live: Path, window: int = 150) -> None:
+    """Update PF reports. Skips in DRY_RUN mode."""
+    import os
+    is_dry_run = os.getenv("MODE", "").upper() == "DRY_RUN" or os.getenv("CHLOE_DRY_RUN", "0") == "1"
+    if is_dry_run:
+        return  # Skip PF updates in dry-run mode
+    
     trades = _read_trades(trades_path)
     accounting = _load_accounting()
 
     pf_live = pf_from_trades(trades) if trades else 0.0
     pf_local = pf_from_trades(trades[-window:]) if trades else 0.0
 
+    # Preserve existing detailed PF data if present (e.g., from run_pf_local.py)
+    existing_pf_local = {}
+    if out_pf_local.exists():
+        try:
+            with out_pf_local.open("r") as f:
+                existing_pf_local = json.load(f)
+        except Exception:
+            pass
+
+    # Merge with simple format
+    pf_local_data = {"pf": pf_local, "window": window, "count": min(len(trades), window)}
+    pf_local_data.update(existing_pf_local)  # Existing detailed data takes precedence
+
     _write_json(out_pf_live, {"pf": pf_live, "count": len(trades)})
-    _write_json(out_pf_local, {"pf": pf_local, "window": window, "count": min(len(trades), window)})
+    _write_json(out_pf_local, pf_local_data)
 
     closed_trades = [t for t in trades if str(t.get("type") or t.get("event", "")).lower() == "close"]
     adj_entries: List[Dict[str, float]] = []

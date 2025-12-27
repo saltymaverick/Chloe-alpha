@@ -11,10 +11,11 @@ from __future__ import annotations
 import json
 import math
 import os
+from collections import deque
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from statistics import mean
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, List, Optional, Tuple
 
 from engine_alpha.core.paths import REPORTS
 
@@ -397,27 +398,50 @@ def _probe_live_signal() -> Dict[str, Any]:
     return snap
 
 
-def _iter_trades(max_lines: int = 1000):
+def _iter_trades(path: Optional[Path] = None, limit: Optional[int] = None):
     """
-    Iterate over trades from trades.jsonl.
-    Yields dict records, skipping malformed lines.
+    Yield parsed trade events (dicts) from a JSONL trades file.
+    
+    If limit is provided, only the last `limit` lines are read.
+    If path is None, uses TRADES_PATH.
     """
-    if not TRADES_PATH.exists():
+    if path is None:
+        path = TRADES_PATH
+    
+    if not path.exists():
         return
     
-    try:
-        lines = TRADES_PATH.read_text().splitlines()
-        for line in lines[-max_lines:]:
-            line = line.strip()
-            if not line:
-                continue
-            try:
-                rec = json.loads(line)
-                yield rec
-            except Exception:
-                continue
-    except Exception:
-        return
+    # If limit is None, just stream
+    if limit is None:
+        try:
+            with path.open() as f:
+                for line in f:
+                    line = line.strip()
+                    if not line:
+                        continue
+                    try:
+                        yield json.loads(line)
+                    except Exception:
+                        continue
+        except Exception:
+            return
+    else:
+        # Read only last `limit` lines
+        dq = deque(maxlen=limit)
+        try:
+            with path.open() as f:
+                for line in f:
+                    dq.append(line)
+            for line in dq:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    yield json.loads(line)
+                except Exception:
+                    continue
+        except Exception:
+            return
 
 
 def summarize_exit_quality(max_trades: int = 200) -> Dict[str, Any]:
@@ -429,7 +453,7 @@ def summarize_exit_quality(max_trades: int = 200) -> Dict[str, Any]:
     reasons = {}
     confs = []
     
-    for rec in _iter_trades(max_trades):
+    for rec in _iter_trades(limit=max_trades):
         if rec.get("type") != "close":
             continue
         
@@ -467,7 +491,7 @@ def summarize_confidence(max_trades: int = 200) -> Dict[str, Any]:
         "conf_geq_0.6": {"pos": 0.0, "neg": 0.0},
     }
     
-    for rec in _iter_trades(max_trades):
+    for rec in _iter_trades(limit=max_trades):
         if rec.get("type") != "close":
             continue
         
@@ -518,7 +542,7 @@ def summarize_risk_behavior(max_trades: int = 200) -> Dict[str, Any]:
     """
     bands = {}
     
-    for rec in _iter_trades(max_trades):
+    for rec in _iter_trades(limit=max_trades):
         if rec.get("type") != "close":
             continue
         
@@ -526,6 +550,108 @@ def summarize_risk_behavior(max_trades: int = 200) -> Dict[str, Any]:
         bands[band] = bands.get(band, 0) + 1
     
     return {"risk_band_counts": bands}
+
+
+def summarize_filtered_pf(
+    trades_path: Path,
+    threshold: float = 0.0005,
+    exit_reasons: Tuple[str, ...] = ("tp", "sl"),
+    max_trades: Optional[int] = None,
+) -> Dict[str, Any]:
+    """
+    Compute filtered PF over meaningful trades only:
+    
+    - Only closes with abs(pct) >= threshold
+    - Only closes with exit_reason in exit_reasons
+    - Grouped overall and by regime
+    """
+    overall = {
+        "count": 0,
+        "wins": 0,
+        "losses": 0,
+        "pos_sum": 0.0,
+        "neg_sum": 0.0,
+        "pf": None,
+    }
+    by_regime: Dict[str, Dict[str, Any]] = {}
+    
+    def _ensure_regime(reg):
+        if reg not in by_regime:
+            by_regime[reg] = {
+                "count": 0,
+                "wins": 0,
+                "losses": 0,
+                "pos_sum": 0.0,
+                "neg_sum": 0.0,
+                "pf": None,
+            }
+        return by_regime[reg]
+    
+    for ev in _iter_trades(path=trades_path, limit=max_trades):
+        if ev.get("type") != "close":
+            continue
+        
+        # Phase 1: Filter out scratch trades
+        if ev.get("is_scratch", False):
+            continue
+        
+        pct = ev.get("pct")
+        if pct is None:
+            continue
+        try:
+            p = float(pct)
+        except Exception:
+            continue
+        if abs(p) < threshold:
+            continue
+        
+        reason = ev.get("exit_reason", "")
+        if exit_reasons and reason not in exit_reasons:
+            continue
+        
+        regime = ev.get("regime") or "unknown"
+        
+        # Update overall
+        overall["count"] += 1
+        regime_bucket = _ensure_regime(regime)
+        regime_bucket["count"] += 1
+        
+        if p > 0:
+            overall["wins"] += 1
+            overall["pos_sum"] += p
+            regime_bucket["wins"] += 1
+            regime_bucket["pos_sum"] += p
+        else:
+            overall["losses"] += 1
+            overall["neg_sum"] += abs(p)
+            regime_bucket["losses"] += 1
+            regime_bucket["neg_sum"] += abs(p)
+    
+    # Compute PFs
+    def _compute_pf(bucket: Dict[str, Any]) -> None:
+        pos = bucket["pos_sum"]
+        neg = bucket["neg_sum"]
+        if bucket["losses"] == 0:
+            if bucket["wins"] == 0:
+                bucket["pf"] = None
+            else:
+                bucket["pf"] = "inf"
+        else:
+            if neg == 0:
+                bucket["pf"] = "inf"
+            else:
+                bucket["pf"] = pos / neg
+    
+    _compute_pf(overall)
+    for reg in by_regime.values():
+        _compute_pf(reg)
+    
+    return {
+        "threshold": threshold,
+        "exit_reasons": list(exit_reasons),
+        "overall": overall,
+        "by_regime": by_regime,
+    }
 
 
 def build_activity_block() -> Dict[str, Any]:
@@ -596,6 +722,16 @@ def main() -> None:
     loop_health = load_loop_health()
     activity_block = build_activity_block()
     
+    # Compute filtered PF (meaningful trades only)
+    # Use more generous threshold (0.0002) and read all trades to capture meaningful signals
+    # Note: We read all trades (limit=None) to ensure we don't miss older meaningful closes
+    filtered_pf = summarize_filtered_pf(
+        trades_path=TRADES_PATH,
+        threshold=0.0002,  # 0.02% cutoff, more generous than pf_doctor_filtered default
+        exit_reasons=("tp", "sl"),  # only meaningful exits
+        max_trades=None,  # read all trades to ensure we capture all meaningful closes
+    )
+    
     reflection_input = {
         "timestamp": now,
         "recent_trades": trades_summary,
@@ -605,6 +741,7 @@ def main() -> None:
         "risk_behavior": risk_behavior,
         "loop_health": loop_health,
         "activity": activity_block,
+        "filtered_pf": filtered_pf,
     }
     
     print(json.dumps(reflection_input, indent=2))

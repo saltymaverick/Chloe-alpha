@@ -1,0 +1,11 @@
+[Unit]
+Description=Run Chloe Orchestrator Slow hourly
+
+[Timer]
+OnBootSec=300s
+OnCalendar=hourly
+RandomizedDelaySec=300
+Persistent=true
+
+[Install]
+WantedBy=timers.target

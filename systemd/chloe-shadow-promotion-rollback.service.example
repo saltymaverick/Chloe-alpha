@@ -1,0 +1,15 @@
+[Unit]
+Description=Chloe Shadow Promotion Rollback (auto-disable unsafe promotions)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=root
+WorkingDirectory=/root/Chloe-alpha
+EnvironmentFile=-/root/Chloe-alpha/systemd/chloe.env
+ExecStart=/bin/bash -lc 'source venv/bin/activate && python3 -m tools.rollback_shadow_promotions'
+
+[Install]
+WantedBy=multi-user.target
+

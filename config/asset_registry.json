@@ -1,0 +1,19 @@
+{
+  "version": "1.0",
+  "default_timeframe": "15m",
+  "symbols": [
+    "BTCUSDT",
+    "ETHUSDT",
+    "SOLUSDT",
+    "AVAXUSDT",
+    "LINKUSDT",
+    "BNBUSDT",
+    "ADAUSDT",
+    "DOTUSDT",
+    "ATOMUSDT",
+    "DOGEUSDT",
+    "XRPUSDT"
+  ],
+  "regime_anchor_symbol": "ETHUSDT",
+  "regime_timeframe": "15m"
+}

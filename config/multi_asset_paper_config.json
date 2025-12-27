@@ -1,0 +1,96 @@
+{
+  "enabled_assets": {
+    "ETHUSDT": {
+      "enabled": true,
+      "mode": "paper",
+      "priority": 1,
+      "notes": "Currently trading - benchmark learner"
+    },
+    "BTCUSDT": {
+      "enabled": false,
+      "mode": "paper",
+      "priority": 2,
+      "activation_condition": "ETHUSDT has 10+ trades and PF > 0.90",
+      "notes": "Tier 1 - Low-confidence breakout engine"
+    },
+    "MATICUSDT": {
+      "enabled": false,
+      "mode": "paper",
+      "priority": 3,
+      "activation_condition": "BTCUSDT enabled and stable",
+      "notes": "Tier 1 - High-confidence breakout engine (strongest edge)"
+    },
+    "AVAXUSDT": {
+      "enabled": false,
+      "mode": "paper",
+      "priority": 4,
+      "activation_condition": "MATICUSDT enabled and stable",
+      "notes": "Tier 1 - SHORT collapse engine (directional bias)"
+    },
+    "DOGEUSDT": {
+      "enabled": false,
+      "mode": "paper",
+      "priority": 5,
+      "activation_condition": "AVAXUSDT enabled and stable",
+      "notes": "Tier 1 - Explosive volatility engine"
+    }
+  },
+  "observation_assets": {
+    "XRPUSDT": {
+      "enabled": false,
+      "mode": "observation",
+      "priority": 6,
+      "activation_condition": "All Tier 1 assets stable (20+ trades each)",
+      "notes": "Tier 2 - Selective breakout/mean-reversion"
+    },
+    "SOLUSDT": {
+      "enabled": false,
+      "mode": "observation",
+      "priority": 7,
+      "activation_condition": "XRPUSDT enabled and stable",
+      "notes": "Tier 2 - Mid-confidence breakout (very selective)"
+    }
+  },
+  "research_only_assets": {
+    "BNBUSDT": {
+      "enabled": false,
+      "mode": "research_only",
+      "notes": "Tier 3 - Selective buckets only, no broad edge"
+    },
+    "DOTUSDT": {
+      "enabled": false,
+      "mode": "research_only",
+      "notes": "Tier 3 - Selective buckets only, no broad edge"
+    },
+    "ADAUSDT": {
+      "enabled": false,
+      "mode": "research_only",
+      "notes": "Tier 3 - Selective buckets only, no broad edge"
+    },
+    "LINKUSDT": {
+      "enabled": false,
+      "mode": "research_only",
+      "notes": "Tier 3 - Selective buckets only, no broad edge"
+    },
+    "ATOMUSDT": {
+      "enabled": false,
+      "mode": "research_only",
+      "notes": "Tier 3 - Selective buckets only, no broad edge"
+    }
+  },
+  "activation_criteria": {
+    "min_trades_for_stability": 10,
+    "min_pf_for_activation": 0.90,
+    "max_drawdown_threshold": 0.25,
+    "min_observation_period_days": 7
+  },
+  "position_limits": {
+    "tier1_max_notional_per_trade_usd": 500,
+    "tier1_max_daily_notional_usd": 5000,
+    "tier2_max_notional_per_trade_usd": 250,
+    "tier2_max_daily_notional_usd": 2500,
+    "max_concurrent_positions": 4
+  }
+}
+
+

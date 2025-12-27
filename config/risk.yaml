@@ -1,14 +1,46 @@
-version: alpha-1
-risk:
-  single_trade_risk_pct: 0.5
-  ruin_floor_drawdown_pct: 15
-  loss_streak_brakes:
-    n: 7
-    safe_mode_at: 14
-fees_slippage:
-  taker_fee_pct: 0.06
-  slip_bps: 2
-accounting:
-  start_equity: 10000.0
-  taker_fee_bps: 6
-  slip_bps: 2
+# Risk engine configuration
+global:
+  trading_enabled: true
+  safe_mode: false
+
+  max_total_notional_usd: 1000.0
+  max_open_positions: 3
+
+  max_daily_loss_abs: 50.0
+  max_daily_loss_pct: 0.05
+
+  max_orders_per_minute: 30
+  max_orders_per_symbol_per_minute: 10
+
+venue_rules:
+  # OKX: Decommissioned (kept for reference, not used)
+  OKX:
+    enabled: false  # Disabled - not in use
+    allowed_inst_types: ["SWAP"]
+    allowed_inst_ids:
+      - "BTC-USDT-SWAP"
+      - "ETH-USDT-SWAP"
+    max_order_notional_usd: 300.0
+    max_leverage: 3.0
+    allowed_td_modes: ["cross"]
+    allowed_pos_sides: ["net"]
+    allow_dynamic_leverage: false
+
+  BYBIT:
+    enabled: true
+    allowed_inst_types: ["linear_perp"]
+    allowed_symbols:
+      - "BTCUSDT"
+      - "ETHUSDT"
+    max_order_notional_usd: 300.0
+    max_leverage: 3.0
+    allowed_td_modes: ["cross"]
+    allow_dynamic_leverage: false
+
+strategies:
+  exploration:
+    enabled: true
+    max_notional_usd: 300.0
+    max_concurrent_positions: 2
+    allowed_venues: ["BYBIT"]  # Changed from OKX to BYBIT
+    max_leverage: 3.0

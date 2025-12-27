@@ -1,0 +1,81 @@
+# Chloe Tuning Rules - Machine-readable roadmap
+# This file encodes the tuning roadmap thresholds and safety limits
+
+tiers:
+  tier1:
+    name: "Core Assets"
+    description: "Strong performers ready for positive tuning"
+    min_exp_trades: 6
+    min_exp_pf: 1.5
+    min_norm_trades: 2
+    min_norm_pf: 1.0
+    tuning_eligible: true
+    tuning_direction: "positive"
+    
+  tier2:
+    name: "Promising / Neutral Assets"
+    description: "Under observation, gathering evidence"
+    min_exp_trades: 0  # No specific threshold
+    min_exp_pf: 0.0    # Neutral
+    min_norm_trades: 0
+    min_norm_pf: 0.0
+    tuning_eligible: false
+    tuning_direction: "none"
+    
+  tier3:
+    name: "Weak / Avoid Assets"
+    description: "Underperformers requiring negative tuning"
+    min_exp_trades: 7
+    max_exp_pf: 0.1
+    max_norm_pf: 0.5
+    tuning_eligible: true
+    tuning_direction: "negative"
+
+tuning:
+  positive:
+    description: "Tier 1 positive tuning adjustments"
+    conf_min_delta_min: -0.05
+    conf_min_delta_max: -0.02
+    exploration_cap_delta_min: 1
+    exploration_cap_delta_max: 1
+    
+  negative:
+    description: "Tier 3 negative tuning adjustments"
+    conf_min_delta_min: 0.02
+    conf_min_delta_max: 0.05
+    exploration_cap_delta_min: -1
+    exploration_cap_delta_max: -1
+
+min_samples_for_tuning:
+  tier1_positive:
+    exp_trades: 6
+    norm_trades: 2
+    description: "Minimum sample size for Tier 1 positive tuning"
+    
+  tier3_negative:
+    exp_trades: 7
+    norm_trades: 0
+    description: "Minimum sample size for Tier 3 negative tuning"
+
+safety:
+  apply_mode_default: "dry-run"
+  allow_auto_apply: false
+  max_conf_min_adjustment_per_symbol: 0.1
+  max_exploration_cap_change_per_symbol: 2
+  description: "Safety limits preventing excessive adjustments"
+
+promotion_rules:
+  to_tier1:
+    exp_pf_min: 1.5
+    exp_trades_min: 6
+    norm_pf_min: 1.0
+    norm_trades_min: 2
+    dream_bad_threshold: 0.3  # Max 30% "bad" trades in Dream reviews
+    
+  to_tier3:
+    exp_pf_max: 0.0
+    exp_trades_min: 7
+    norm_pf_max: 0.5
+    dream_bad_threshold: 0.5  # At least 50% "bad" trades in Dream reviews
+
+

@@ -14,18 +14,18 @@ council_weights:
     timing: 0.15
 
   trend:
-    momentum: 0.35
+    momentum: 0.40
     meanrev: 0.10
     flow: 0.25
-    positioning: 0.20
+    positioning: 0.15
     timing: 0.10
 
   high_vol:
-    momentum: 0.20
-    meanrev: 0.20
-    flow: 0.30
+    momentum: 0.25
+    meanrev: 0.10
+    flow: 0.40
     positioning: 0.10
-    timing: 0.20
+    timing: 0.15
 
 
 

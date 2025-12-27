@@ -11,6 +11,7 @@ from datetime import datetime, timezone
 
 from engine_alpha.core.paths import REPORTS
 from engine_alpha.core.gpt_client import load_prompt, query_gpt
+from engine_alpha.reflect.trade_sanity import is_close_like_event, get_close_return_pct
 
 
 def _read_trades(trades_path: Path, n: int = 20) -> List[Dict[str, Any]]:
@@ -89,14 +90,14 @@ def _calculate_pf_from_trades(trades: List[Dict[str, Any]]) -> float:
     if not trades:
         return 1.0
     
-    # Filter CLOSE events (these have P&L)
-    close_trades = [t for t in trades if t.get("event") == "CLOSE"]
+    # Filter CLOSE-like events (these have P&L)
+    close_trades = [t for t in trades if is_close_like_event(t)]
     
     positive_sum = 0.0
     negative_sum = 0.0
     
     for trade in close_trades:
-        pnl_pct = trade.get("pnl_pct", 0.0)
+        pnl_pct = get_close_return_pct(trade) or 0.0
         if pnl_pct > 0:
             positive_sum += pnl_pct
         elif pnl_pct < 0:
@@ -129,7 +130,7 @@ def reflect_on_batch(trades_path: Optional[Path] = None, reflections_path: Optio
     # Read last N trades
     trades = _read_trades(trades_path, n)
     
-    # Calculate current PF
+    # Calculate current PF (close-like only)
     current_pf = _calculate_pf_from_trades(trades)
     
     # Read previous reflection
@@ -140,7 +141,14 @@ def reflect_on_batch(trades_path: Optional[Path] = None, reflections_path: Optio
     pf_delta = current_pf - previous_pf
     
     # Compose reflection (placeholder GPT insight for Phase 4)
-    insight = f"PF changed by {pf_delta:.4f}. Trading performance {'improved' if pf_delta > 0 else 'declined'}."
+    eps = 1e-6
+    if pf_delta > eps:
+        trend_word = "improved"
+    elif pf_delta < -eps:
+        trend_word = "declined"
+    else:
+        trend_word = "flat"
+    insight = f"PF changed by {pf_delta:.4f}. Trading performance {trend_word}."
     if not trades:
         insight = "No trades to analyze."
     
@@ -150,11 +158,17 @@ def reflect_on_batch(trades_path: Optional[Path] = None, reflections_path: Optio
         "sd": 0.0
     }
     
+    # Count close-like samples for operator clarity
+    close_count = sum(1 for t in trades if is_close_like_event(t))
+
     reflection = {
         "ts": datetime.now(timezone.utc).isoformat(),
         "pf": current_pf,
         "pf_delta": pf_delta,
-        "n_trades": len(trades),
+        # Back-compat: keep n_trades but make it mean "n close-like samples"
+        "n_trades": close_count,
+        # Extra context (non-breaking): total events scanned in this batch
+        "n_events": len(trades),
         "insight": insight,
         "confidence_adjust": confidence_adjust,
     }
@@ -186,13 +200,17 @@ def calibrate_confidence(current_conf: float, reason_score: float) -> float:
 
 
 def _summarize_trades(trades: List[Dict[str, Any]]) -> Dict[str, Any]:
-    closes = [t for t in trades if t.get("event") == "CLOSE"]
-    wins = [t for t in closes if t.get("pnl_pct", 0.0) > 0]
-    losses = [t for t in closes if t.get("pnl_pct", 0.0) < 0]
+    closes = [t for t in trades if is_close_like_event(t)]
+
+    def _pnl_pct(t: Dict[str, Any]) -> float:
+        return float(get_close_return_pct(t) or 0.0)
+
+    wins = [t for t in closes if _pnl_pct(t) > 0]
+    losses = [t for t in closes if _pnl_pct(t) < 0]
     total_close = len(closes)
     win_rate = len(wins) / total_close if total_close else 0.0
-    avg_win = sum(t.get("pnl_pct", 0.0) for t in wins) / len(wins) if wins else 0.0
-    avg_loss = sum(t.get("pnl_pct", 0.0) for t in losses) / len(losses) if losses else 0.0
+    avg_win = sum(_pnl_pct(t) for t in wins) / len(wins) if wins else 0.0
+    avg_loss = sum(_pnl_pct(t) for t in losses) / len(losses) if losses else 0.0
     recent = closes[-5:]
     return {
         "total_trades": len(trades),

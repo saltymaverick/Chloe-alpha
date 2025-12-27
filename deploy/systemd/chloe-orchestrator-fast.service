@@ -1,0 +1,11 @@
+[Unit]
+Description=Chloe Orchestrator Fast Mode (5m cadence)
+After=network.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/root/Chloe-alpha
+Environment="PYTHONPATH=/root/Chloe-alpha"
+EnvironmentFile=/root/Chloe-alpha/.env
+ExecStart=/root/Chloe-alpha/venv/bin/python3 -m tools.chloe_orchestrator fast
+

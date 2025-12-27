@@ -1,0 +1,51 @@
+# Symbol Registry - Phase 4.1
+# Centralized configuration for managing tradable assets.
+# 
+# To add a coin:
+# 1. Add entry below with enabled: true
+# 2. Ensure data feed is configured for that symbol
+# 3. Run system_sanity to verify integration
+#
+# To disable a coin:
+# 1. Set enabled: false (keeps config but stops trading)
+#
+# tier_hint is used by Reflection/Tuner/Evolver for initial expectations
+
+symbols:
+  - id: BTCUSDT
+    enabled: true
+    tier_hint: tier1
+  - id: ETHUSDT
+    enabled: true
+    tier_hint: tier1
+  - id: SOLUSDT
+    enabled: true
+    tier_hint: tier2
+  - id: AVAXUSDT
+    enabled: true
+    tier_hint: tier2
+  - id: LINKUSDT
+    enabled: true
+    tier_hint: tier2
+  - id: MATICUSDT
+    enabled: false
+    tier_hint: tier2
+  - id: ATOMUSDT
+    enabled: true
+    tier_hint: tier3
+  - id: BNBUSDT
+    enabled: true
+    tier_hint: tier1
+  - id: DOTUSDT
+    enabled: true
+    tier_hint: tier1
+  - id: ADAUSDT
+    enabled: true
+    tier_hint: tier3
+  - id: XRPUSDT
+    enabled: true
+    tier_hint: tier2
+  - id: DOGEUSDT
+    enabled: true
+    tier_hint: tier3
+

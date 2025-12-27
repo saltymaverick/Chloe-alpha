@@ -1,0 +1,30 @@
+# Symbol Tiers Configuration
+# This file mirrors GPT Reflection output tiers in a human-curated config.
+# Update this file manually based on reflection_output.json analysis.
+
+tiers:
+  tier1:
+    - ETHUSDT
+    - DOTUSDT
+
+  tier2:
+    - AVAXUSDT
+    - ADAUSDT
+    - SOLUSDT
+    - LINKUSDT
+    - BTCUSDT
+    - BNBUSDT
+
+  tier3:
+    - ATOMUSDT
+    - DOGEUSDT
+    - XRPUSDT
+
+notes:
+  - "tier1 = strong performers; consider positive tuning once samples sufficient"
+  - "tier2 = neutral; continue exploration"
+  - "tier3 = weak; consider negative tuning if poor results persist"
+  - "This file is a reference only - not wired into risk engine yet"
+  - "Update manually based on reflection_output.json analysis"
+
+

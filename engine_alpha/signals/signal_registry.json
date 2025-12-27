@@ -72,15 +72,105 @@
       "description": "Volume delta"
     },
     {
-      "name": "Funding_Bias",
-      "category": "onchain",
-      "source": "fetch_funding_bias",
+      "name": "RET_1H",
+      "category": "technical",
+      "source": "live_core_only",
+      "norm": "z-tanh",
+      "weight": 1.0,
+      "description": "1h return based on 4x15m close"
+    },
+    {
+      "name": "RET_4H",
+      "category": "technical",
+      "source": "live_core_only",
+      "norm": "z-tanh",
+      "weight": 1.0,
+      "description": "4h return based on 16x15m close"
+    },
+    {
+      "name": "ADX_14",
+      "category": "trend",
+      "source": "live_core_only",
       "norm": "bounded",
       "weight": 1.0,
-      "description": "Funding rate bias",
+      "description": "Average Directional Index (14)",
       "bounds": {
-        "min": -0.01,
-        "max": 0.01,
+        "min": 0,
+        "max": 100,
+        "center": 25
+      }
+    },
+    {
+      "name": "CHOP_14",
+      "category": "regime",
+      "source": "live_core_only",
+      "norm": "bounded",
+      "weight": 1.0,
+      "description": "Choppiness index (14)",
+      "bounds": {
+        "min": 0,
+        "max": 100,
+        "center": 50
+      }
+    },
+    {
+      "name": "REALVOL_15",
+      "category": "volatility",
+      "source": "live_core_only",
+      "norm": "z-tanh",
+      "weight": 1.0,
+      "description": "Realized volatility over 15 bars"
+    },
+    {
+      "name": "REALVOL_60",
+      "category": "volatility",
+      "source": "live_core_only",
+      "norm": "z-tanh",
+      "weight": 1.0,
+      "description": "Realized volatility over 60 bars"
+    },
+    {
+      "name": "VOL_Z_20",
+      "category": "volume",
+      "source": "live_core_only",
+      "norm": "z-tanh",
+      "weight": 1.0,
+      "description": "Volume z-score over 20 bars"
+    },
+    {
+      "name": "BODY_PCT",
+      "category": "structure",
+      "source": "live_core_only",
+      "norm": "z-tanh",
+      "weight": 1.0,
+      "description": "Candle body size vs ATR"
+    },
+    {
+      "name": "WICK_RATIO",
+      "category": "structure",
+      "source": "live_core_only",
+      "norm": "z-tanh",
+      "weight": 1.0,
+      "description": "Total wick size vs body size"
+    },
+    {
+      "name": "BREAKOUT_ATR",
+      "category": "breakout",
+      "source": "live_core_only",
+      "norm": "z-tanh",
+      "weight": 1.0,
+      "description": "Body / ATR breakout strength"
+    },
+    {
+      "name": "Funding_Bias",
+      "category": "sentiment",
+      "source": "live_core_only",
+      "norm": "bounded",
+      "weight": 1.0,
+      "description": "Normalized perp funding rate bias",
+      "bounds": {
+        "min": -1.0,
+        "max": 1.0,
         "center": 0
       }
     },
@@ -130,9 +220,198 @@
         "max": 0.001,
         "center": 0.0001
       }
+    },
+    {
+      "name": "Whale_Accumulation_Velocity",
+      "category": "flow",
+      "source": "fetch_whale_accumulation_velocity",
+      "norm": "flow_dict",
+      "weight": 1.0,
+      "description": "Whale accumulation velocity (large wallet net flow rate)",
+      "directionality": "bullish"
+    },
+    {
+      "name": "Net_Exchange_Inflow",
+      "category": "flow",
+      "source": "fetch_net_exchange_inflow",
+      "norm": "flow_dict",
+      "weight": 1.0,
+      "description": "Net exchange inflow (negative = outflow, bullish)",
+      "directionality": "bearish"
+    },
+    {
+      "name": "Exchange_Reserve_Delta",
+      "category": "flow",
+      "source": "fetch_exchange_reserve_delta",
+      "norm": "flow_dict",
+      "weight": 1.0,
+      "description": "Exchange reserve change (negative = withdrawal, bullish)",
+      "directionality": "bearish"
+    },
+    {
+      "name": "Perp_OI_Trend",
+      "category": "flow",
+      "source": "fetch_perp_oi_trend",
+      "norm": "flow_dict",
+      "weight": 1.0,
+      "description": "Perpetual open interest trend (increasing = bullish)",
+      "directionality": "bullish"
+    },
+    {
+      "name": "CVD_Spot_Vs_Perp",
+      "category": "flow",
+      "source": "fetch_cvd_spot_vs_perp",
+      "norm": "flow_dict",
+      "weight": 1.0,
+      "description": "Cumulative volume delta divergence (spot vs perp)",
+      "directionality": "neutral"
+    },
+    {
+      "name": "Large_Wallet_Bid_Ask_Dominance",
+      "category": "flow",
+      "source": "fetch_large_wallet_bid_ask_dominance",
+      "norm": "flow_dict",
+      "weight": 1.0,
+      "description": "Large wallet bid-ask dominance (positive = bid dominance, bullish)",
+      "directionality": "bullish"
+    },
+    {
+      "name": "Vol_Compression_Percentile",
+      "category": "volatility",
+      "source": "fetch_vol_compression_percentile",
+      "norm": "flow_dict",
+      "weight": 1.0,
+      "description": "Volatility compression percentile (high = compressed, bullish for expansion)",
+      "directionality": "bullish"
+    },
+    {
+      "name": "Vol_Expansion_Probability",
+      "category": "volatility",
+      "source": "fetch_vol_expansion_probability",
+      "norm": "flow_dict",
+      "weight": 1.0,
+      "description": "Volatility expansion probability (high = likely vol breakout)",
+      "directionality": "bullish"
+    },
+    {
+      "name": "Regime_Transition_Heat",
+      "category": "volatility",
+      "source": "fetch_regime_transition_heat",
+      "norm": "flow_dict",
+      "weight": 1.0,
+      "description": "Regime transition heat (high = rapid vol change, potential regime shift)",
+      "directionality": "neutral"
+    },
+    {
+      "name": "Vol_Clustering_Score",
+      "category": "volatility",
+      "source": "fetch_vol_clustering_score",
+      "norm": "flow_dict",
+      "weight": 1.0,
+      "description": "Volatility clustering score (high = persistent vol regimes)",
+      "directionality": "neutral"
+    },
+    {
+      "name": "Realized_Vs_Implied_Gap",
+      "category": "volatility",
+      "source": "fetch_realized_vs_implied_gap",
+      "norm": "flow_dict",
+      "weight": 1.0,
+      "description": "Realized vs implied volatility gap (positive = RV > IV, bullish for vol)",
+      "directionality": "bullish"
+    },
+    {
+      "name": "Funding_Rate_Z",
+      "category": "microstructure",
+      "source": "fetch_funding_rate_z",
+      "norm": "flow_dict",
+      "weight": 1.0,
+      "description": "Funding rate z-score (high positive = overlevered longs, bearish)",
+      "directionality": "bearish"
+    },
+    {
+      "name": "Perp_Spot_Basis",
+      "category": "microstructure",
+      "source": "fetch_perp_spot_basis",
+      "norm": "flow_dict",
+      "weight": 1.0,
+      "description": "Perpetual vs spot basis (positive = perp premium, bullish)",
+      "directionality": "bullish"
+    },
+    {
+      "name": "Liquidation_Heat_Proximity",
+      "category": "microstructure",
+      "source": "fetch_liquidation_heat_proximity",
+      "norm": "flow_dict",
+      "weight": 1.0,
+      "description": "Liquidation heat proximity (high = near liquidation clusters)",
+      "directionality": "neutral"
+    },
+    {
+      "name": "Orderbook_Imbalance",
+      "category": "microstructure",
+      "source": "fetch_orderbook_imbalance",
+      "norm": "flow_dict",
+      "weight": 1.0,
+      "description": "Orderbook imbalance (positive = bid dominance, bullish)",
+      "directionality": "bullish"
+    },
+    {
+      "name": "OI_Price_Divergence",
+      "category": "microstructure",
+      "source": "fetch_oi_price_divergence",
+      "norm": "flow_dict",
+      "weight": 1.0,
+      "description": "Open interest vs price divergence (positive = risky buildup, bearish)",
+      "directionality": "bearish"
+    },
+    {
+      "name": "BTC_ETH_Vol_Lead_Lag",
+      "category": "cross_asset",
+      "source": "fetch_btc_eth_vol_lead_lag",
+      "norm": "flow_dict",
+      "weight": 1.0,
+      "description": "BTC/ETH volatility lead-lag (positive = BTC leading risk moves)",
+      "directionality": "neutral"
+    },
+    {
+      "name": "SOL_L1_Rotation_Score",
+      "category": "cross_asset",
+      "source": "fetch_sol_l1_rotation_score",
+      "norm": "flow_dict",
+      "weight": 1.0,
+      "description": "SOL vs other L1 rotation score (positive = rotation into SOL)",
+      "directionality": "bullish"
+    },
+    {
+      "name": "ETH_Ecosystem_Momentum",
+      "category": "cross_asset",
+      "source": "fetch_eth_ecosystem_momentum",
+      "norm": "flow_dict",
+      "weight": 1.0,
+      "description": "ETH ecosystem momentum vs BTC (positive = ETH complex gaining)",
+      "directionality": "bullish"
+    },
+    {
+      "name": "Stablecoin_Flow_Pressure",
+      "category": "cross_asset",
+      "source": "fetch_stablecoin_flow_pressure",
+      "norm": "flow_dict",
+      "weight": 1.0,
+      "description": "Stablecoin flow pressure (positive = inflow, risk-on potential)",
+      "directionality": "bullish"
+    },
+    {
+      "name": "Sector_Risk_Score",
+      "category": "cross_asset",
+      "source": "fetch_sector_risk_score",
+      "norm": "flow_dict",
+      "weight": 1.0,
+      "description": "Sector risk score (high = system-wide sector risk)",
+      "directionality": "neutral"
     }
   ],
   "version": "1.0.0",
-  "total_signals": 12
+  "total_signals": 43
 }
 

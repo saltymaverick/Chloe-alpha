@@ -6,7 +6,7 @@ import os
 import time
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Tuple
 
 import yaml
 
@@ -17,6 +17,7 @@ from engine_alpha.data.live_prices import get_live_ohlcv
 from engine_alpha.core.regime import classify_regime
 from engine_alpha.core.profit_amplifier import evaluate as pa_evaluate, risk_multiplier as pa_rmult
 from engine_alpha.core.risk_adapter import evaluate as risk_eval
+from engine_alpha.core.opportunity_density import update_opportunity_state, save_state, load_state
 from engine_alpha.loop.execute_trade import open_if_allowed, close_now
 from engine_alpha.loop.position_manager import (
     get_open_position,
@@ -28,6 +29,12 @@ from engine_alpha.loop.position_manager import (
 )
 from engine_alpha.reflect.trade_analysis import update_pf_reports
 from engine_alpha.reflect import pf_weighted
+from engine_alpha.config.feature_flags import get_feature_registry, refresh_feature_registry
+from engine_alpha.reflect.counterfactual_ledger import record_trading_decision, resolve_trade_counterfactual
+from engine_alpha.reflect.regime_uncertainty import assess_regime_uncertainty
+from engine_alpha.reflect.edge_half_life import analyze_edge_strength
+from engine_alpha.reflect.meta_intelligence import assess_meta_decision_quality
+from engine_alpha.reflect.fair_value_gaps import detect_and_log_fvgs
 from engine_alpha.core import position_sizing
 
 TRADES_PATH = REPORTS / "trades.jsonl"
@@ -50,7 +57,7 @@ ENTRY_THRESHOLDS_DEFAULT: dict[str, float] = {
     "trend_down": 0.50,
     "high_vol": 0.55,
     "trend_up": 0.60,
-    "chop": 0.65,
+    "chop": 0.25,  # Further lowered for Phase 5J chop testing
 }
 
 
@@ -109,12 +116,81 @@ _COOL_DOWN_SECONDS = 5  # Minimum seconds between opens
 _BAD_EXIT_WINDOW_SECONDS = 10  # Time window for tracking bad exits
 _BAD_EXIT_THRESHOLD = 3  # Number of SL/drop exits that trigger suppression
 
+# Inaction logging deduplication (in-memory, resets on restart)
+_inaction_dedupe_cache: Dict[Tuple[str, str, str], datetime] = {}
+
 _LAST_BAR_STATE = {
     "bar_ts": None,
     "opened_this_bar": False,
     "last_open_ts": None,
     "recent_bad_exits": [],  # List of datetime objects for SL/drop exits
 }
+
+
+def _log_inaction_if_blocked(symbol: str, timeframe: str, direction: int, confidence: float,
+                           regime: str, allow_opens: bool, entry_min_conf: float) -> None:
+    """
+    Log inaction decisions at FINAL_DECISION level with deduplication.
+
+    Only logs when decision is blocked and hasn't been logged recently for same conditions.
+    """
+    # Determine if decision is blocked
+    is_blocked = False
+    barrier_type = ""
+    barrier_reason = ""
+
+    if not allow_opens:
+        is_blocked = True
+        barrier_type = "policy_block"
+        barrier_reason = "allow_opens_false"
+    elif direction == 0:
+        is_blocked = True
+        barrier_type = "neutral_decision"
+        barrier_reason = "direction_zero"
+    elif confidence < entry_min_conf:
+        is_blocked = True
+        barrier_type = "confidence_threshold"
+        barrier_reason = f"conf_{confidence:.2f}_below_{entry_min_conf:.2f}"
+
+    # Only log if blocked and dedupe check passes
+    if is_blocked and _should_log_inaction(symbol, timeframe, barrier_reason):
+        try:
+            from engine_alpha.reflect.inaction_performance import record_inaction_decision
+            record_inaction_decision(
+                symbol=symbol,
+                intended_direction=direction,
+                confidence=confidence,
+                regime=regime,
+                barrier_type=barrier_type,
+                barrier_reason=barrier_reason,
+                market_state={
+                    "timeframe": timeframe,
+                    "entry_min_conf": entry_min_conf,
+                    "regime": regime
+                }
+            )
+            # Logged successfully
+        except Exception as e:
+            print(f"INACTION_LOGGING_ERROR: {e}")
+
+
+def _should_log_inaction(symbol: str, timeframe: str, barrier_reason: str) -> bool:
+    """
+    Deduplication check for inaction logging.
+    Returns False if same (symbol, timeframe, barrier_reason) was logged within 5 minutes.
+    """
+    cache_key = (symbol, timeframe, barrier_reason)
+    now = datetime.now(timezone.utc)
+
+    # Check if we logged this recently
+    if cache_key in _inaction_dedupe_cache:
+        last_logged = _inaction_dedupe_cache[cache_key]
+        if (now - last_logged).total_seconds() < 300:  # 5 minutes
+            return False
+
+    # Update cache and allow logging
+    _inaction_dedupe_cache[cache_key] = now
+    return True
 
 
 def _log_council_event(event: dict) -> None:
@@ -149,8 +225,8 @@ def regime_allows_entry(regime: str) -> bool:
     if os.getenv("BACKTEST_FREE_REGIME") == "1":
         return True
     
-    # Live/PAPER behavior
-    return regime in ("trend_down", "high_vol")
+    # Live/PAPER behavior - allow chop for mean reversion strategies
+    return regime in ("trend_down", "high_vol", "chop")
 
 
 def compute_entry_min_conf(regime: str, risk_band: str | None) -> float:
@@ -443,10 +519,150 @@ def run_step(entry_min_conf: float = 0.70, exit_min_conf: float = 0.30, reverse_
 
     # PAPER + band C override: slightly softer entry threshold for learning
     effective_entry_min_conf = regime_entry_min_conf
+    # TEMPORARY: Lower threshold for chop regime testing
+    if regime == "chop":
+        effective_entry_min_conf = min(effective_entry_min_conf, 0.35)
     is_paper_mode = True  # run_step() is PAPER mode
     if is_paper_mode and adapter_band == "C":
         effective_entry_min_conf = max(0.0, regime_entry_min_conf - 0.03)
         print(f"ENTRY-DEBUG: PAPER band=C using softened entry_min_conf={effective_entry_min_conf:.2f} (final_conf={final['conf']:.2f})")
+
+    # META-INTELLIGENCE: Assess regime uncertainty and edge half-life
+    # This provides second-order intelligence for trading decisions
+    uncertainty_metrics = None
+    edge_metrics = None
+
+    # Get OHLCV data for meta-intelligence analysis
+    from engine_alpha.data.live_prices import get_live_ohlcv
+    ohlcv_live = get_live_ohlcv(symbol, timeframe)
+
+    try:
+        uncertainty_metrics = assess_regime_uncertainty(
+            market_data={
+                "closes": ohlcv_live.get("close", [])[-50:] if ohlcv_live.get("close") else [],
+                "volumes": ohlcv_live.get("volume", [])[-50:] if ohlcv_live.get("volume") else [],
+                "highs": ohlcv_live.get("high", [])[-50:] if ohlcv_live.get("high") else [],
+                "lows": ohlcv_live.get("low", [])[-50:] if ohlcv_live.get("low") else [],
+            },
+            current_regime=regime,
+            timestamp=datetime.now(timezone.utc)
+        )
+    except Exception as e:
+        print(f"REGIME_UNCERTAINTY_ERROR: {e}")
+
+    try:
+        # Load recent trades for edge analysis
+        recent_trades = []
+        if TRADES_PATH.exists():
+            with TRADES_PATH.open("r", encoding="utf-8") as f:
+                for line in f:
+                    try:
+                        trade = json.loads(line)
+                        if (trade.get("symbol") == symbol and
+                            trade.get("type") == "close" and
+                            trade.get("pct") is not None):
+                            recent_trades.append(trade)
+                    except:
+                        continue
+
+        # Analyze edge strength using recent performance
+        if len(recent_trades) >= 10:
+            recent_returns = [t["pct"] for t in recent_trades[-30:]]
+            if recent_returns:
+                from engine_alpha.research.pf_timeseries import _compute_pf_for_window
+                current_pf = _compute_pf_for_window(recent_returns)
+                wins = sum(1 for r in recent_returns if r > 0)
+                win_rate = wins / len(recent_returns)
+                expectancy = sum(recent_returns) / len(recent_returns)
+
+                edge_metrics = analyze_edge_strength(
+                    symbol=symbol,
+                    pf=current_pf,
+                    win_rate=win_rate,
+                    expectancy=expectancy,
+                    total_trades=len(recent_returns),
+                    time_window_days=7,
+                    historical_trades=recent_trades[-100:]
+                )
+    except Exception as e:
+        print(f"EDGE_HALF_LIFE_ERROR: {e}")
+
+    # META-INTELLIGENCE: Detect Fair Value Gaps (Observer-only)
+    # This identifies structural price dislocations for meta-analysis
+    fvg_context = None
+    registry = refresh_feature_registry()
+    if not registry.is_off("fvg_detector"):
+        try:
+            # Get OHLCV data for FVG detection (independent of regime uncertainty)
+            from engine_alpha.data.live_prices import get_live_ohlcv
+            ohlcv_result = get_live_ohlcv(symbol, timeframe)
+            print(f"FVG_DEBUG: got OHLCV result type {type(ohlcv_result)}")
+            if isinstance(ohlcv_result, tuple) and len(ohlcv_result) >= 1:
+                candles_list = ohlcv_result[0]
+                print(f"FVG_DEBUG: got {len(candles_list)} candles for {symbol}")
+                if candles_list and len(candles_list) > 0:
+                    detected_gaps = detect_and_log_fvgs(
+                        symbol=symbol,
+                        candles=candles_list[-50:],  # Last 50 candles
+                        current_regime=regime,
+                        timeframe=timeframe
+                    )
+                    print(f"FVG_DEBUG: detected {len(detected_gaps)} gaps for {symbol}")
+                    if detected_gaps:
+                        print(f"FVG_DEBUG: gap details - {detected_gaps[0].direction} {detected_gaps[0].gap_size_pct:.2f}%")
+
+            if detected_gaps:
+                print(f"FVG_DETECTED: {len(detected_gaps)} new gaps on {symbol} "
+                      f"({detected_gaps[0].direction} {detected_gaps[0].gap_size_pct:.2f}%)")
+
+                # Build FVG context for meta-analysis
+                from engine_alpha.reflect.fair_value_gaps import fvg_detector
+                fvg_context = {
+                    "detected_gaps": len(detected_gaps),
+                    "recent_gaps": [gap._asdict() for gap in detected_gaps[-3:]],  # Last 3 gaps
+                    "fvg_statistics": fvg_detector.get_fvg_statistics(symbol, days_back=7)
+                }
+
+        except Exception as e:
+            # FVG detection failure shouldn't stop trading
+            print(f"FVG_DETECTION_ERROR: {e}")
+
+    # META-INTELLIGENCE: Consult unified meta-decision system
+    # This provides comprehensive second-order decision quality assessment
+    meta_decision_score = None
+    try:
+        # Use available variables instead of final[]
+        meta_decision_score = assess_meta_decision_quality(
+            symbol=symbol,
+            decision_type="entry",
+            market_context={
+                "regime": regime,
+                "adapter_band": adapter_band
+            }
+        )
+
+        # Log meta-intelligence insights
+        if meta_decision_score.overall_score < 0.4:
+            print(f"META-CAUTION: {symbol} decision score {meta_decision_score.overall_score:.2f} - {meta_decision_score.recommendation}")
+        elif meta_decision_score.overall_score > 0.8:
+            print(f"META-CONFIDENCE: {symbol} decision score {meta_decision_score.overall_score:.2f} - proceeding with high meta-confidence")
+
+    except Exception as e:
+        print(f"META-INTELLIGENCE_ERROR: {e}")
+
+    # Record comprehensive meta-intelligence decision
+    record_trading_decision(
+        symbol=symbol,
+        direction=final["dir"],
+        confidence=final["conf"],
+        regime=regime,
+        entry_price=None,
+        market_state={"regime": regime, "adapter_band": adapter_band},
+        decision_type="entry_attempt",
+        regime_uncertainty=uncertainty_metrics,
+        edge_strength=edge_metrics,
+        fvg_context=fvg_context
+    )
 
     opened = False
     if policy.get("allow_opens", True):
@@ -454,12 +670,51 @@ def run_step(entry_min_conf: float = 0.70, exit_min_conf: float = 0.30, reverse_
                                  final_conf=final["conf"],
                                  entry_min_conf=effective_entry_min_conf,
                                  risk_mult=rmult,
-                                 regime=regime,  # Pass regime for observability
+                                 regime=price_based_regime,  # Use price_based_regime directly to avoid variable shadowing
                                  risk_band=adapter_band,  # Pass risk_band for observability
                                  symbol=symbol,
                                  timeframe=timeframe)
         if opened:
             _annotate_last_open(float(pa_mult), adapter, rmult)
+        else:
+            # META-INTELLIGENCE: Record inaction when trade blocked by open_if_allowed
+            print(f"INACTION_TRIGGERED: {symbol} blocked by open_if_allowed")
+            try:
+                from engine_alpha.reflect.inaction_performance import record_inaction_decision
+                # Determine the specific barrier that blocked the trade
+                barrier_type = "entry_min_conf" if final["conf"] < effective_entry_min_conf else "pretrade_check"
+                barrier_reason = f"conf_{final['conf']:.2f}_below_min_{effective_entry_min_conf:.2f}" if final["conf"] < effective_entry_min_conf else "pretrade_checks_failed"
+
+                # Use available variables for inaction recording
+                record_inaction_decision(
+                    symbol=symbol,
+                    intended_direction=1,  # Default to long for blocked trades
+                    confidence=0.5,  # Neutral confidence for blocked trades
+                    regime=regime,
+                    barrier_type=barrier_type,
+                    barrier_reason=barrier_reason,
+                    market_state={"regime": regime, "adapter_band": adapter_band, "entry_min_conf": effective_entry_min_conf}
+                )
+                print(f"INACTION_RECORDED: {symbol}")
+            except Exception as e:
+                print(f"INACTION_RECORDING_ERROR: {e}")
+    else:
+        # META-INTELLIGENCE: Record inaction when trade blocked by policy
+        print(f"INACTION_TRIGGERED: {symbol} blocked by policy")
+        try:
+            from engine_alpha.reflect.inaction_performance import record_inaction_decision
+            record_inaction_decision(
+                symbol=symbol,
+                intended_direction=0,  # No direction for policy-blocked trades
+                confidence=0.0,  # Zero confidence for blocked trades
+                regime=regime,
+                barrier_type="policy_block",
+                barrier_reason="policy_allows_opens_false",
+                market_state={"regime": regime, "adapter_band": adapter_band}
+            )
+            print(f"INACTION_RECORDED: {symbol}")
+        except Exception as e:
+            print(f"INACTION_RECORDING_ERROR: {e}")
 
     pos = get_open_position()
     if pos and pos.get("dir"):
@@ -496,7 +751,9 @@ def run_step(entry_min_conf: float = 0.70, exit_min_conf: float = 0.30, reverse_
             close_pct = float(final.get("conf", 0.0)) if same_dir else -float(final.get("conf", 0.0))
 
         if close_pct is not None:
-            close_now(pct=close_pct)
+            # Use stored regime from position for exit logging
+            stored_regime = pos.get("regime") or pos.get("regime_at_entry") or regime or "unknown"
+            close_now(pct=close_pct, regime=stored_regime)
             clear_position()
             if flip and policy.get("allow_opens", True):
                 if open_if_allowed(
@@ -504,7 +761,7 @@ def run_step(entry_min_conf: float = 0.70, exit_min_conf: float = 0.30, reverse_
                     final_conf=final["conf"],
                     entry_min_conf=effective_entry_min_conf,
                     risk_mult=rmult,
-                    regime=regime,  # Pass regime for observability
+                    regime=price_based_regime,  # Use price_based_regime directly to avoid variable shadowing
                     risk_band=adapter_band,  # Pass risk_band for observability
                     symbol=symbol,
                     timeframe=timeframe,
@@ -514,6 +771,46 @@ def run_step(entry_min_conf: float = 0.70, exit_min_conf: float = 0.30, reverse_
     update_pf_reports(TRADES_PATH,
                       REPORTS / "pf_local.json",
                       REPORTS / "pf_live.json")
+
+    # Update opportunity density tracking
+    try:
+        # Determine if this represents a trading opportunity
+        # Opportunity exists when we have a clear directional signal with reasonable confidence
+        is_opportunity = (
+            final["dir"] != 0 and  # Clear direction
+            final["conf"] >= 0.3 and  # Reasonable confidence threshold
+            regime != "unknown"  # Valid regime classification
+        )
+
+        # Update opportunity state
+        opp_state = load_state()
+        opp_state, opp_metrics = update_opportunity_state(
+            opp_state,
+            _now(),
+            regime,
+            is_eligible=is_opportunity,
+            alpha=0.05
+        )
+        save_state(opp_state)
+
+        # Log opportunity event for snapshot analysis
+        from engine_alpha.core.atomic_io import atomic_append_jsonl
+        opportunity_event = {
+            "ts": _now(),
+            "symbol": symbol,
+            "timeframe": timeframe,
+            "regime": regime,
+            "final_dir": final["dir"],
+            "final_conf": final["conf"],
+            "eligible": is_opportunity,
+            "eligible_reason": "signal_ready" if is_opportunity else "low_confidence",
+            "density_current": opp_metrics.get("density_current", 0.0),
+        }
+        atomic_append_jsonl(REPORTS / "opportunity_events.jsonl", opportunity_event)
+
+    except Exception as e:
+        # Opportunity tracking failure shouldn't stop trading
+        print(f"OPPORTUNITY_UPDATE_ERROR: {e}")
 
     return {"ts": _now(),
             "regime": regime,
@@ -666,8 +963,16 @@ def run_step_live(symbol: str = "ETHUSDT",
             bucket_weight_adj["flow"] = 1.05
             bucket_weight_adj["positioning"] = 1.05
         elif regime == "chop":
-            bucket_weight_adj["meanrev"] = 1.10
-            bucket_weight_adj["flow"] = 0.90
+            registry = refresh_feature_registry()
+            mode = registry.mode("chop_meanrev_override")
+            if registry.is_enforce("chop_meanrev_override"):
+                bucket_weight_adj["meanrev"] = 1.10
+                bucket_weight_adj["flow"] = 0.90
+                print(f"CHOP_MEANREV_OVERRIDE: applied meanrev=1.10, flow=0.90 (enforce mode)")
+            elif registry.is_observe("chop_meanrev_override"):
+                # In observe mode, compute but don't apply
+                print(f"CHOP_MEANREV_OVERRIDE: would adjust meanrev=1.10, flow=0.90 (observe mode)")
+            # else: off mode - no adjustment
         
         # Recompute final_score with Phase 54 adjustments
         regime_weights = REGIME_BUCKET_WEIGHTS.get(regime, REGIME_BUCKET_WEIGHTS.get("chop", {}))
@@ -711,7 +1016,7 @@ def run_step_live(symbol: str = "ETHUSDT",
                     "weight": 0.0,  # Not used in LIVE mode
                 })
     
-    # Apply neutral zone logic: if final_score magnitude is below threshold, set dir=0
+    # Apply neutral zone logic: if base_final_score magnitude is below threshold, set dir=0
     # Use same neutral zone for all modes (unified behavior)
     # NOTE: Neutral zone is applied ONCE here, not in decide()
     score_abs = abs(base_final_score)
@@ -743,10 +1048,10 @@ def run_step_live(symbol: str = "ETHUSDT",
         print(
             f"SIGNAL-DEBUG: ts={ts_str} regime={regime} "
             f"buckets={bucket_str} | "
-            f"final_score={final_score:.4f} final_dir={effective_final_dir} final_conf={effective_final_conf:.2f}"
+            f"base_final_score={base_final_score:.4f} final_dir={effective_final_dir} final_conf={effective_final_conf:.2f}"
         )
         if effective_final_dir == 0:
-            print(f"SIGNAL-DEBUG: neutralized final_score={final_score:.4f} < NEUTRAL_THRESHOLD={NEUTRAL_THRESHOLD:.2f}")
+            print(f"SIGNAL-DEBUG: neutralized base_final_score={base_final_score:.4f} < NEUTRAL_THRESHOLD={NEUTRAL_THRESHOLD:.2f}")
     
     # Get gates from decision (for exit thresholds)
     gates = decision.get("gates", {})
@@ -972,6 +1277,8 @@ def run_step_live(symbol: str = "ETHUSDT",
             "entry_px": float(entry_price) if entry_price is not None else 1.0,
             "last_ts": ts_val,
             "risk_r": risk_r,
+            "regime": regime,  # Store regime at entry time for exit logging
+            "regime_at_entry": regime,  # For debugging
         }
         set_live_position(new_pos)
         set_position(new_pos)
@@ -1019,9 +1326,33 @@ def run_step_live(symbol: str = "ETHUSDT",
         }
     
     # Step 2: Check confidence threshold
-    if allow_opens and effective_final_dir != 0 and effective_final_conf < effective_min_conf_live:
+    # TEMPORARY: More lenient for chop regime testing
+    threshold_to_use = effective_min_conf_live
+    if regime == "chop":
+        # Check if we have exploration-specific chop threshold
+        from engine_alpha.core.config_loader import load_engine_config
+        cfg = load_engine_config()
+        chop_exploration_min = cfg.get("chop_exploration_entry_min")
+
+        # For chop regime, if meanrev confidence is strong enough, use it for exploration
+        # This allows exploration trades when meanrev signal is clear, even if overall confidence is low
+        meanrev_conf = None
+        if decision and decision.get("buckets"):
+            meanrev_bucket = decision["buckets"].get("meanrev", {})
+            if meanrev_bucket.get("dir") == final_dir:  # Same direction as final
+                meanrev_conf = meanrev_bucket.get("conf", 0.0)
+
+        if meanrev_conf and meanrev_conf >= 0.20:  # Weak meanrev signal for exploration sample building
+            threshold_to_use = min(threshold_to_use, meanrev_conf - 0.01)  # Allow entry just below meanrev conf
+            print(f"CHOP_MEANREV_BYPASS: using meanrev_conf={meanrev_conf:.2f} as threshold")
+        elif chop_exploration_min is not None:
+            threshold_to_use = min(threshold_to_use, chop_exploration_min)
+        else:
+            threshold_to_use = min(threshold_to_use, 0.30)  # Allow 0.32 confidence
+
+    if allow_opens and effective_final_dir != 0 and effective_final_conf < threshold_to_use:
         if DEBUG_SIGNALS:
-            print(f"ENTRY-THRESHOLD: skip trade dir={effective_final_dir} conf={effective_final_conf:.2f} < entry_min={effective_min_conf_live:.2f}")
+            print(f"ENTRY-THRESHOLD: skip trade dir={effective_final_dir} conf={effective_final_conf:.2f} < entry_min={threshold_to_use:.2f}")
         # Build result dict for early return
         final = {"dir": effective_final_dir, "conf": effective_final_conf}
         return {
@@ -1036,6 +1367,11 @@ def run_step_live(symbol: str = "ETHUSDT",
             "pnl": 0.0,
         }
     
+    # META-INTELLIGENCE: Record inaction for decisions that cannot proceed
+    # This catches blocking at the FINAL_DECISION level with deduplication
+    _log_inaction_if_blocked(symbol, timeframe, effective_final_dir, effective_final_conf,
+                           price_based_regime, allow_opens, effective_min_conf_live)
+
     # Step 3: Attempt to open (regime gate and threshold checks passed)
     can_open = (allow_opens and effective_final_dir != 0 and effective_final_conf >= effective_min_conf_live)
     opened = False
@@ -1062,10 +1398,38 @@ def run_step_live(symbol: str = "ETHUSDT",
         live_pos["last_ts"] = bar_ts or _now()
         set_live_position(live_pos)
         set_position(live_pos)
+        # Calculate current P&L for exit decisions
+        entry_price = live_pos.get("entry_px")
+        current_pct = None
+        if entry_price and exit_price:
+            try:
+                entry_val = float(entry_price)
+                exit_val = float(exit_price)
+                dir_val = int(live_pos.get("dir", 1))
+                if entry_val > 0:
+                    raw_change = (exit_val - entry_val) / entry_val
+                    signed_change = raw_change * dir_val
+                    current_pct = signed_change  # Already as decimal (not percentage)
+            except (TypeError, ValueError):
+                pass
+
+        # Exit conditions based on P&L thresholds (not signal direction)
+        # TP: profitable position (pct > profit threshold)
+        # SL: adverse position (pct < loss threshold)
+        profit_threshold = 0.002  # 0.2% profit to take profits
+        loss_threshold = -0.001   # -0.1% loss to cut losses
+
+        take_profit = current_pct is not None and current_pct >= profit_threshold
+        stop_loss = current_pct is not None and current_pct <= loss_threshold
+
+        if take_profit:
+            print(f"TP_CONDITION_MET: {symbol}_{timeframe} pct={current_pct:.4f} >= {profit_threshold:.4f} (profitable exit)")
+        if stop_loss:
+            print(f"SL_CONDITION_MET: {symbol}_{timeframe} pct={current_pct:.4f} <= {loss_threshold:.4f} (loss exit)")
+        # Keep signal-based exits for flip/drop (these are different from TP/SL)
         same_dir = final["dir"] != 0 and final["dir"] == live_pos["dir"]
         opposite_dir = final["dir"] != 0 and final["dir"] != live_pos["dir"]
-        take_profit = same_dir and final["conf"] >= take_profit_conf
-        stop_loss = opposite_dir and final["conf"] >= stop_loss_conf
+
         flip = (
             final["dir"] != 0
             and final["dir"] != live_pos["dir"]
@@ -1080,6 +1444,7 @@ def run_step_live(symbol: str = "ETHUSDT",
         # ---------------------------
         decay = (live_pos["bars_open"] >= decay_bars)
         bars_open = live_pos.get("bars_open", 0)
+
 
         # PnL pct calculation summary (for live exits):
         # - take_profit: pct = abs(conf) [positive, uses confidence as proxy]
@@ -1097,39 +1462,60 @@ def run_step_live(symbol: str = "ETHUSDT",
         # Decay is handled separately as it has its own gate (bars_open >= decay_bars)
         # Critical exits (hard stop-loss) are allowed before min-hold
         
-        # Check min-hold guard
-        # Allow TP to bypass min-hold if confidence is very high (>= 0.70) - captures strong moves early
-        # This increases TP exits and reduces drop/decay exits by allowing early TP captures
-        high_conf_tp = take_profit and final["conf"] >= 0.70
-        if bars_open < MIN_HOLD_BARS_LIVE:
-            # Critical exits (stop_loss) and high-confidence TP (>= 0.70) can fire immediately
-            # Non-critical exits (drop, reverse, low-conf take_profit) must wait for min-hold
-            if take_profit and not high_conf_tp:
-                # Low-confidence TP must wait for min-hold
-                if DEBUG_SIGNALS:
-                    print(f"LIVE-GUARD: min-hold active (bars_open={bars_open} < MIN_HOLD_BARS_LIVE={MIN_HOLD_BARS_LIVE}), skip TP (conf={final['conf']:.2f} < 0.70)")
-                take_profit = False
-            elif drop or flip:
-                if DEBUG_SIGNALS:
-                    print(f"LIVE-GUARD: min-hold active (bars_open={bars_open} < MIN_HOLD_BARS_LIVE={MIN_HOLD_BARS_LIVE}), skip non-critical exit (reason: {'drop' if drop else 'reverse'})")
-                # Reset exit flags for non-critical exits
+        # NEW: Time-based min-hold enforcement (seconds since entry)
+        # Use entry_ts from position for more precise min-hold than bar-based
+        min_hold_seconds = 30  # 30 seconds minimum hold for normal/core positions
+        age_seconds = 0
+        entry_ts = live_pos.get("entry_ts")
+        if entry_ts:
+            try:
+                entry_time = datetime.fromisoformat(entry_ts.replace("Z", "+00:00")).replace(tzinfo=timezone.utc)
+                now_time = datetime.now(timezone.utc)
+                age_seconds = (now_time - entry_time).total_seconds()
+            except Exception:
+                age_seconds = 0
+
+        # Check time-based min-hold guard
+        # TP and SL based on P&L can fire anytime (they're based on actual profitability)
+        # Only signal-based exits (drop, flip) need min-hold to prevent thrashing
+        if age_seconds < min_hold_seconds:
+            # P&L-based exits (TP, SL) can fire immediately when thresholds are hit
+            # Only signal-based exits (drop, flip) must wait for min-hold
+            if drop or flip:
+                print(f"EXIT_SKIP_MIN_HOLD: {symbol}_{timeframe} age_s={age_seconds:.1f} < min_s={min_hold_seconds}, skip exit (reason: {'drop' if drop else 'reverse'})")
                 drop = False
                 flip = False
-            # stop_loss and high_conf_tp are allowed (critical/high-confidence exits) - handle below
+            # TP and SL are allowed (based on actual P&L, not signal timing)
+
+        # NEW: For tp/sl/drop/flip exits, require live price - no fallback allowed
+        live_price = None
+        live_price_meta = None
+        if take_profit or stop_loss or drop or flip:
+            try:
+                from engine_alpha.data.price_feed_health import get_latest_trade_price
+                px, meta = get_latest_trade_price(symbol)
+                live_price_available = px is not None and px > 0
+                live_price = px
+                live_price_meta = meta
+            except Exception as e:
+                live_price_available = False
+                print(f"EXIT_SKIP_NO_PRICE: {symbol}_{timeframe} price fetch failed: {e}")
+
+            if not live_price_available:
+                print(f"EXIT_SKIP_NO_PRICE: {symbol}_{timeframe} no live price available, skip exit (reason: {'tp' if take_profit else 'sl' if stop_loss else 'drop' if drop else 'reverse'})")
+                take_profit = False
+                stop_loss = False
+                drop = False
+                flip = False
         
-        # Evaluate exits - determine which exit reason fired
-        # We'll compute price-based P&L below, not confidence-based
+        # Evaluate exits - P&L-based exits (TP/SL) can fire anytime, signal-based need min-hold
         exit_fired = False
-        if stop_loss:
+        if take_profit:
             exit_fired = True
-        elif take_profit:
-            # TP can fire if: (1) min-hold met OR (2) high confidence (>= 0.70) bypasses min-hold
-            if bars_open >= MIN_HOLD_BARS_LIVE or high_conf_tp:
-                exit_fired = True
-                if high_conf_tp and bars_open < MIN_HOLD_BARS_LIVE:
-                    print(f"EXIT-DEBUG: TP hit (high-conf bypass) conf={final['conf']:.4f} >= 0.70, bars_open={bars_open}")
-                else:
-                    print(f"EXIT-DEBUG: TP hit conf={final['conf']:.4f} >= take_profit_conf={take_profit_conf:.4f}")
+            print(f"EXIT-DEBUG: TP hit pct={current_pct:.4f} >= {profit_threshold:.4f} (P&L-based exit)")
+        elif stop_loss:
+            exit_fired = True
+            print(f"EXIT-DEBUG: SL hit pct={current_pct:.4f} <= {loss_threshold:.4f} (P&L-based exit)")
         elif bars_open >= MIN_HOLD_BARS_LIVE:
             if drop or flip:
                 exit_fired = True
@@ -1170,17 +1556,20 @@ def run_step_live(symbol: str = "ETHUSDT",
             # Get prices for price-based PnL calculation
             entry_price = live_pos.get("entry_px")
             exit_price = None
+            exit_px_source = None
             pos_dir = live_pos.get("dir")
-            
-            # Get latest bar's close price as exit_price
-            # This works for both live (real API) and backtest (mocked OHLCV)
-            ohlcv_rows = get_live_ohlcv(symbol=symbol, timeframe=timeframe, limit=1)
-            if ohlcv_rows and len(ohlcv_rows) > 0:
-                latest_candle = ohlcv_rows[-1]
-                exit_price = latest_candle.get("close")
-                # Try alternative field names if "close" is missing
-                if exit_price is None:
-                    exit_price = latest_candle.get("c") or latest_candle.get("close_price")
+
+            # Get live trade price as exit_price (same as timeout closes use)
+            try:
+                from engine_alpha.data.price_feed_health import get_latest_trade_price
+                px, meta = get_latest_trade_price(symbol)
+                if px is not None and px > 0:
+                    exit_price = float(px)
+                    exit_px_source = meta.get("source_used") or meta.get("source") or "price_feed_health"
+                else:
+                    exit_px_source = "price_feed_health:unavailable"
+            except Exception as e:
+                exit_px_source = f"price_feed_health:exception:{str(e)}"
             
             # Debug logging for price extraction
             if os.getenv("DEBUG_SIGNALS") == "1":
@@ -1226,18 +1615,21 @@ def run_step_live(symbol: str = "ETHUSDT",
             r_value = pct_net * fraction
             equity_live_value = max(0.0, float(equity_before) * (1.0 + r_value))
             
-            # Call close_now with extended fields for reflection analysis
+            # Call close_now with live price and regime for proper P&L calculation
+            # Use live_price if available (from above), otherwise fallback to calculated exit_price
+            actual_exit_price = live_price if 'live_price' in locals() and live_price is not None else exit_price
+            actual_exit_px_source = live_price_meta.get("source_used") if 'live_price_meta' in locals() and live_price_meta else exit_px_source
+
+            # Prefer stored regime from position, then current regime, then unknown
+            stored_regime = live_pos.get("regime") or live_pos.get("regime_at_entry")
+            exit_regime = stored_regime or regime or "unknown"
+
             close_now(
-                pct=final_pct,
-                entry_price=entry_price,
-                exit_price=exit_price,
-                dir=pos_dir,
+                symbol=symbol,
+                timeframe=timeframe,
                 exit_reason=exit_reason,
-                exit_conf=exit_conf,
-                regime=regime,
-                risk_band=adapter_band,
-                risk_mult=rmult,
-                max_adverse_pct=None,  # TODO: compute max adverse excursion if bar-level prices available
+                exit_price=(actual_exit_price, {"source_used": actual_exit_px_source}) if actual_exit_price else None,
+                regime=exit_regime
             )
             
             # Log council perf event for close
@@ -1286,9 +1678,97 @@ def run_step_live(symbol: str = "ETHUSDT",
 
     equity_live_out = position_sizing.read_equity_live()
     
+    # META-INTELLIGENCE: Detect Fair Value Gaps (Observer-only)
+    # This identifies structural price dislocations for meta-analysis
+    fvg_context = None
+    try:
+        # get_live_ohlcv is already imported at module level (line 32)
+        ohlcv_result = get_live_ohlcv(symbol, timeframe)
+        print(f"FVG_DEBUG: got OHLCV result type {type(ohlcv_result)}")
+        if isinstance(ohlcv_result, tuple) and len(ohlcv_result) >= 1:
+            candles_list = ohlcv_result[0]
+            print(f"FVG_DEBUG: got {len(candles_list)} candles for {symbol}")
+            if candles_list and len(candles_list) > 0:
+                detected_gaps = detect_and_log_fvgs(
+                    symbol=symbol,
+                    candles=candles_list[-50:],  # Last 50 candles
+                    current_regime=price_based_regime,
+                    timeframe=timeframe
+                )
+                print(f"FVG_DEBUG: detected {len(detected_gaps)} gaps for {symbol}")
+                if detected_gaps:
+                    print(f"FVG_DEBUG: gap details - {detected_gaps[0].direction} {detected_gaps[0].gap_size_pct:.2f}%")
+
+                # Build FVG context for meta-analysis
+                from engine_alpha.reflect.fair_value_gaps import fvg_detector
+                fvg_context = {
+                    "detected_gaps": len(detected_gaps),
+                    "recent_gaps": [gap._asdict() for gap in detected_gaps[-3:]],  # Last 3 gaps
+                    "fvg_statistics": fvg_detector.get_fvg_statistics(symbol, days_back=7)
+                }
+
+    except Exception as e:
+        # FVG detection failure shouldn't stop trading
+        print(f"FVG_DETECTION_ERROR: {e}")
+
+    # Record comprehensive meta-intelligence decision
+    record_trading_decision(
+        symbol=symbol,
+        direction=final["dir"],
+        confidence=final["conf"],
+        regime=price_based_regime,
+        entry_price=None,
+        market_state={"regime": price_based_regime, "adapter_band": adapter_band},
+        decision_type="entry_attempt",
+        regime_uncertainty=None,  # TODO: Add regime uncertainty
+        edge_strength=None,       # TODO: Add edge strength
+        fvg_context=fvg_context
+    )
+
     # Extract PnL from close event (only non-zero when a close happened)
     # final_pct is computed in the exit logic above if a close occurred
     pnl = 0.0
+    # Update opportunity density tracking
+    try:
+        # Determine if this represents a trading opportunity
+        # Opportunity exists when we have a clear directional signal with reasonable confidence
+        is_opportunity = (
+            final_dir != 0 and  # Clear direction
+            final_conf >= 0.3 and  # Reasonable confidence threshold
+            regime != "unknown"  # Valid regime classification
+        )
+
+        # Update opportunity state
+        opp_state = load_state()
+        current_ts = _now()
+        opp_state, opp_metrics = update_opportunity_state(
+            opp_state,
+            current_ts,
+            regime,
+            is_eligible=is_opportunity,
+            alpha=0.05
+        )
+        save_state(opp_state)
+
+        # Log opportunity event for snapshot analysis
+        from engine_alpha.core.atomic_io import atomic_append_jsonl
+        opportunity_event = {
+            "ts": current_ts,
+            "symbol": symbol,
+            "timeframe": timeframe,
+            "regime": regime,
+            "final_dir": final_dir,
+            "final_conf": final_conf,
+            "eligible": is_opportunity,
+            "eligible_reason": "signal_ready" if is_opportunity else "low_confidence",
+            "density_current": opp_metrics.get("density_current", 0.0),
+        }
+        atomic_append_jsonl(REPORTS / "opportunity_events.jsonl", opportunity_event)
+
+    except Exception as e:
+        # Opportunity tracking failure shouldn't stop trading
+        print(f"OPPORTUNITY_UPDATE_ERROR: {e}")
+
     try:
         if 'final_pct' in locals() and final_pct is not None:
             # Convert pct (percentage) to decimal for equity calculation
@@ -1328,3 +1808,210 @@ def run_batch(n: int = 25):
         "last": info
     }, indent=2))
     return info
+
+def run_exit_evaluation_for_all_positions():
+    """
+    Evaluate exits for ALL open positions regardless of symbol/timeframe.
+    This ensures positions on different symbols/timeframes get proper exit evaluation.
+    """
+    try:
+        # Load all positions
+        position_state_path = REPORTS / "position_state.json"
+        if not position_state_path.exists():
+            return
+
+        with position_state_path.open("r", encoding="utf-8") as f:
+            position_data = json.load(f)
+
+        positions = position_data.get("positions", {})
+        if not positions:
+            return
+
+        # For each position, run exit evaluation using its symbol/timeframe
+        for pos_key, pos_info in positions.items():
+            if not pos_info or not pos_info.get("dir"):
+                continue
+
+            # Extract symbol and timeframe from position key (format: SYMBOL_TIMEFRAME)
+            if "_" not in pos_key:
+                continue
+            parts = pos_key.split("_", 1)
+            if len(parts) != 2:
+                continue
+            symbol, timeframe = parts
+
+            try:
+                # Run exit evaluation for this specific position
+                # This will check if the position should be closed and execute the close if needed
+                _evaluate_single_position_exit(symbol, timeframe, pos_info)
+            except Exception as e:
+                print(f"EXIT_EVAL_ERROR for {pos_key}: {e}")
+                import traceback
+                traceback.print_exc()
+
+    except Exception as e:
+        print(f"EXIT_EVALUATION_ALL_POSITIONS_ERROR: {e}")
+
+
+def _evaluate_single_position_exit(symbol: str, timeframe: str, pos_info: dict):
+    """
+    Evaluate exit conditions for a single position.
+    This replicates the exit logic from run_step_live but for a specific position.
+    """
+    # Get current decision for this symbol/timeframe
+    out = get_signal_vector_live(symbol=symbol, timeframe=timeframe, limit=200)
+    decision = decide(out["signal_vector"], out["raw_registry"])
+    final = decision["final"]
+    regime = decision["regime"]
+
+    # Load exit config and policy
+    exit_cfg = _load_exit_config()
+    decay_bars = exit_cfg["DECAY_BARS"]
+    take_profit_conf = exit_cfg["TAKE_PROFIT_CONF"]
+    stop_loss_conf = exit_cfg["STOP_LOSS_CONF"]
+    gates = decision.get("gates", {})
+    gates_exit_min_conf = gates.get("exit_min_conf", 0.30)
+    gates_reverse_min_conf = gates.get("reverse_min_conf", 0.60)
+
+    policy = _load_policy()
+
+    # Check exit conditions with P&L-based logic and time-based min-hold
+    bars_open = pos_info.get("bars_open", 0)
+
+    # Fetch live price for P&L calculations (only when needed for exits)
+    live_price = None
+    live_price_meta = None
+    try:
+        from engine_alpha.data.price_feed_health import get_latest_trade_price
+        px, meta = get_latest_trade_price(symbol)
+        if px is not None and px > 0:
+            live_price = px
+            live_price_meta = meta
+    except Exception as e:
+        print(f"EXIT_EVAL_PRICE_FETCH_FAILED: {symbol}_{timeframe} - {e}")
+
+    # Calculate current P&L for exit decisions
+    entry_price = pos_info.get("entry_px")
+    current_pct = None
+    if entry_price and live_price:
+        try:
+            entry_val = float(entry_price)
+            exit_val = float(live_price)
+            dir_val = int(pos_info.get("dir", 1))
+            if entry_val > 0:
+                raw_change = (exit_val - entry_val) / entry_val
+                signed_change = raw_change * dir_val
+                current_pct = signed_change  # As decimal
+        except (TypeError, ValueError):
+            pass
+
+    # Exit conditions based on P&L thresholds (not signal direction)
+    profit_threshold = 0.002  # 0.2% profit to take profits
+    loss_threshold = -0.001   # -0.1% loss to cut losses
+
+    take_profit = current_pct is not None and current_pct >= profit_threshold
+    stop_loss = current_pct is not None and current_pct <= loss_threshold
+
+    # Keep signal-based exits for flip/drop
+    same_dir = final["dir"] != 0 and final["dir"] == pos_info["dir"]
+    opposite_dir = final["dir"] != 0 and final["dir"] != pos_info["dir"]
+
+    flip = (
+        final["dir"] != 0
+        and final["dir"] != pos_info["dir"]
+        and final["conf"] >= gates_reverse_min_conf
+    )
+    drop = (final["conf"] < gates_exit_min_conf)
+    decay = (bars_open >= decay_bars)
+
+    # NEW: Time-based min-hold enforcement (seconds since entry)
+    min_hold_seconds = 30  # 30 seconds minimum hold for normal/core positions
+    age_seconds = 0
+    entry_ts = pos_info.get("entry_ts")
+    if entry_ts:
+        try:
+            entry_time = datetime.fromisoformat(entry_ts.replace("Z", "+00:00")).replace(tzinfo=timezone.utc)
+            now_time = datetime.now(timezone.utc)
+            age_seconds = (now_time - entry_time).total_seconds()
+        except Exception:
+            age_seconds = 0
+
+    # Check time-based min-hold guard
+    # P&L-based exits (TP, SL) can fire anytime when thresholds are hit
+    # Only signal-based exits (drop, flip) need min-hold to prevent thrashing
+    if age_seconds < min_hold_seconds:
+        # P&L-based exits (TP, SL) can fire immediately when thresholds are hit
+        # Only signal-based exits (drop, flip) must wait for min-hold
+        if drop or flip:
+            print(f"EXIT_SKIP_MIN_HOLD: {symbol}_{timeframe} age_s={age_seconds:.1f} < min_s={min_hold_seconds}, skip exit (reason: {'drop' if drop else 'reverse'})")
+            drop = False
+            flip = False
+        # TP and SL are allowed (based on actual P&L, not signal timing)
+
+    # NEW: For tp/sl/drop/flip exits, require live price - no fallback allowed
+    live_price = None
+    live_price_meta = None
+    if take_profit or stop_loss or drop or flip:
+        try:
+            from engine_alpha.data.price_feed_health import get_latest_trade_price
+            px, meta = get_latest_trade_price(symbol)
+            live_price_available = px is not None and px > 0
+            live_price = px
+            live_price_meta = meta
+        except Exception as e:
+            live_price_available = False
+            print(f"EXIT_SKIP_NO_PRICE: {symbol}_{timeframe} price fetch failed: {e}")
+
+        if not live_price_available:
+            print(f"EXIT_SKIP_NO_PRICE: {symbol}_{timeframe} no live price available, skip exit (reason: {'tp' if take_profit else 'sl' if stop_loss else 'drop' if drop else 'reverse'})")
+            take_profit = False
+            stop_loss = False
+            drop = False
+            flip = False
+
+    # Determine if exit should fire
+    exit_fired = take_profit or stop_loss or flip or drop or decay
+
+    if exit_fired:
+        # Determine exit reason
+        exit_reason = "unknown"
+        if decay:
+            exit_reason = "decay"
+        elif take_profit:
+            exit_reason = "tp"
+        elif stop_loss:
+            exit_reason = "sl"
+        elif flip:
+            exit_reason = "reverse"
+        elif drop:
+            exit_reason = "drop"
+
+        print(f"EXIT_CHECK: {symbol}_{timeframe} bars_open={bars_open} age_s={age_seconds:.1f} reason={exit_reason} conf={final['conf']:.2f}")
+
+        # Execute the close with live price and stored regime
+        stored_regime = pos_info.get("regime") or pos_info.get("regime_at_entry")
+        close_now(
+            symbol=symbol,
+            timeframe=timeframe,
+            exit_reason=exit_reason,
+            exit_price=(live_price, {"source_used": live_price_meta.get("source_used")}) if live_price else None,
+            regime=stored_regime or "unknown"
+        )
+
+        # Clear the position
+        clear_position()
+
+        print(f"CLOSE-LOG EXECUTED: {symbol}_{timeframe} reason={exit_reason} live_px={live_price}")
+
+
+def run_step_live_scheduled():
+    """Scheduled version of run_step_live for continuous loop."""
+    # Run for the configured symbol and timeframe
+    from engine_alpha.core.config_loader import load_engine_config
+    cfg = load_engine_config()
+    symbol = cfg.get('symbol', 'ETHUSDT')
+    timeframe = cfg.get('timeframe', '15m')
+
+    # TEMPORARY: Lower entry threshold for chop regime testing
+    run_step_live(symbol=symbol, timeframe=timeframe, entry_min_conf=0.30)
+

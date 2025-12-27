@@ -1,2 +1,11 @@
 Summarize why the last N trades performed as they did and what should be adjusted.
 
+IMPORTANT: Use the EXACT numeric gates defined in:
+- gate_and_size_trade() in engine_alpha/loop/execute_trade.py
+- observation_mode.json
+- exploration_mode.enabled in engine_config.json
+
+Never invent thresholds. Use exploration_pass exactly as implemented:
+- exploration_mode.enabled = true allows small trades when direction > min_direction and size_factor <= max_size_factor
+- exploration_pass can bypass confidence gate but NOT regime or edge gates
+- Use only the numeric thresholds provided in the input JSON (min_confidence, edge floor, exploration_mode, etc.)

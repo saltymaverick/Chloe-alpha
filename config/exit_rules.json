@@ -1,0 +1,40 @@
+{
+  "trend_down": {
+    "min_hold_bars": 1,
+    "max_hold_bars": 24,
+    "tp_return_min": 0.0122,
+    "sl_return": -0.0132,
+    "tp_conf_min": 0.65,
+    "sl_conf_min": 0.3,
+    "decay_bars": 3,
+    "drop_return_max": 0.0005
+  },
+  "high_vol": {
+    "min_hold_bars": 2,
+    "tp_return_min": 0.0151,
+    "sl_return": -0.0106,
+    "tp_conf_min": 0.6,
+    "sl_conf_min": 0.35,
+    "decay_bars": 4,
+    "drop_return_max": 0.0007
+  },
+  "trend_up": {
+    "min_hold_bars": 4,
+    "max_hold_bars": 24,
+    "tp_return_min": 0.0111,
+    "sl_return": -0.0129,
+    "tp_conf_min": 0.65,
+    "sl_conf_min": 0.3,
+    "decay_bars": 6,
+    "drop_return_max": 0.0005
+  },
+  "chop": {
+    "min_hold_bars": 4,
+    "tp_return_min": 0.0082,
+    "sl_return": -0.0086,
+    "tp_conf_min": 0.75,
+    "sl_conf_min": 0.4,
+    "decay_bars": 6,
+    "drop_return_max": 0.0005
+  }
+}

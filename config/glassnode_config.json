@@ -1,0 +1,17 @@
+{
+  "api_key": "YOUR_GLASSNODE_API_KEY_HERE",
+  "base_url": "https://api.glassnode.com/v1/metrics",
+  "assets": {
+    "BTCUSDT": "BTC",
+    "ETHUSDT": "ETH"
+  },
+  "metrics": {
+    "exchange_netflow": "/flow/exchange/net",
+    "addresses_active": "/addresses/active_count"
+  },
+  "default_params": {
+    "frequency": "24h"
+  }
+}
+
+

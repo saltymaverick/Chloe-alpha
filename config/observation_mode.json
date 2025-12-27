@@ -1,0 +1,97 @@
+{
+  "default": {
+    "observation_regimes": ["trend_up", "trend_down", "high_vol"],
+    "edge_floor": -0.0015,
+    "size_factor": 0.4,
+    "max_open_trades": 1,
+    "min_conf": 0.20
+  },
+  "asset_overrides": {
+    "ETHUSDT": {
+      "observation_regimes": ["trend_up", "trend_down", "high_vol"],
+      "edge_floor": -0.0025,
+      "size_factor": 0.4,
+      "max_open_trades": 1,
+      "min_conf": 0.15
+    },
+    "BTCUSDT": {
+      "observation_regimes": ["trend_up", "trend_down", "high_vol"],
+      "edge_floor": -0.0025,
+      "size_factor": 0.35,
+      "max_open_trades": 1,
+      "min_conf": 0.15
+    },
+    "MATICUSDT": {
+      "observation_regimes": ["trend_up", "trend_down", "high_vol", "chop"],
+      "edge_floor": -0.0020,
+      "size_factor": 0.5,
+      "max_open_trades": 1,
+      "min_conf": 0.15
+    },
+    "SOLUSDT": {
+      "observation_regimes": ["trend_up", "trend_down", "high_vol"],
+      "edge_floor": -0.0025,
+      "size_factor": 0.4,
+      "max_open_trades": 1,
+      "min_conf": 0.15
+    },
+    "DOGEUSDT": {
+      "observation_regimes": ["trend_up", "trend_down", "high_vol", "chop"],
+      "edge_floor": -0.0025,
+      "size_factor": 0.35,
+      "max_open_trades": 1,
+      "min_conf": 0.10
+    },
+    "AVAXUSDT": {
+      "observation_regimes": ["trend_up", "trend_down", "high_vol"],
+      "edge_floor": -0.0025,
+      "size_factor": 0.4,
+      "max_open_trades": 1,
+      "min_conf": 0.15
+    },
+    "XRPUSDT": {
+      "observation_regimes": ["trend_up", "trend_down", "high_vol"],
+      "edge_floor": -0.0025,
+      "size_factor": 0.35,
+      "max_open_trades": 1,
+      "min_conf": 0.15
+    },
+    "ADAUSDT": {
+      "observation_regimes": ["trend_up", "trend_down", "high_vol"],
+      "edge_floor": -0.0025,
+      "size_factor": 0.35,
+      "max_open_trades": 1,
+      "min_conf": 0.15
+    },
+    "DOTUSDT": {
+      "observation_regimes": ["trend_up", "trend_down", "high_vol"],
+      "edge_floor": -0.0025,
+      "size_factor": 0.4,
+      "max_open_trades": 1,
+      "min_conf": 0.15
+    },
+    "LINKUSDT": {
+      "observation_regimes": ["trend_up", "trend_down", "high_vol"],
+      "edge_floor": -0.0025,
+      "size_factor": 0.35,
+      "max_open_trades": 1,
+      "min_conf": 0.15
+    },
+    "ATOMUSDT": {
+      "observation_regimes": ["trend_up", "trend_down", "high_vol"],
+      "edge_floor": -0.0025,
+      "size_factor": 0.35,
+      "max_open_trades": 1,
+      "min_conf": 0.15
+    },
+    "BNBUSDT": {
+      "observation_regimes": ["trend_up", "trend_down", "high_vol"],
+      "edge_floor": -0.0025,
+      "size_factor": 0.35,
+      "max_open_trades": 1,
+      "min_conf": 0.15
+    }
+  }
+}
+
+

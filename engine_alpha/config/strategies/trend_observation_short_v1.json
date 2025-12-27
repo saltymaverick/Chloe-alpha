@@ -1,0 +1,56 @@
+{
+  "name": "trend_observation_short_v1",
+  "description": "Small-size observation shorts in trend_down/trend_up to learn about trend behavior.",
+  "version": 1,
+  "status": "experimental",
+  "kind": "micro",
+  "scope": {
+    "symbols": ["ETHUSDT"],
+    "regimes": ["trend_down", "trend_up"],
+    "timeframes": ["5m"],
+    "direction": ["short"],
+    "priority": 5
+  },
+  "activation": {
+    "min_pf": 0.95,
+    "max_drawdown": 0.25,
+    "min_trades": 0,
+    "requires_manual_approval": false
+  },
+  "entry_logic": {
+    "type": "trend_follow",
+    "lookback_bars": 10,
+    "trigger": {
+      "metric": "regime",
+      "relation": "equals",
+      "reference": "trend_down"
+    },
+    "filters": {
+      "confidence_min": 0.63,
+      "max_spread_bps": 15,
+      "volatility_band": "medium_high",
+      "swarm_required_state": ["ok", "warn"],
+      "allow_observation_mode": true
+    }
+  },
+  "exit_logic": {
+    "tp_pct": 0.015,
+    "sl_pct": 0.015,
+    "max_hold_bars": 24,
+    "trailing": {
+      "enabled": false,
+      "trail_pct": 0.0
+    }
+  },
+  "risk": {
+    "base_size_factor": 0.5,
+    "max_notional_usd": 200.0,
+    "min_notional_usd": 10.0,
+    "per_day_trade_limit": 10,
+    "per_day_loss_limit_usd": 200.0,
+    "override_observation_mode": false
+  },
+  "tags": ["trend", "short", "observation"]
+}
+
+

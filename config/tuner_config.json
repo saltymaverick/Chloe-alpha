@@ -1,0 +1,17 @@
+{
+  "decay": {
+    "confidence_half_life_s": 1800,
+    "pci_half_life_s": 900
+  },
+  "compression": {
+    "threshold_score": 0.6
+  },
+  "opportunity": {
+    "min_confidence": 0.45,
+    "max_soft_invalidation": 0.6
+  },
+  "self_trust": {
+    "min_score_for_looser": 0.65,
+    "max_overconfidence": 0.25
+  }
+}

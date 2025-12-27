@@ -1,0 +1,17 @@
+[Unit]
+Description=Chloe Nightly Research - Analyze Historical Performance & Tune Thresholds
+After=network.target
+
+[Service]
+Type=oneshot
+User=root
+WorkingDirectory=/root/Chloe-alpha
+Environment="PYTHONPATH=/root/Chloe-alpha"
+ExecStart=/root/Chloe-alpha/venv/bin/python3 -m tools.nightly_research --tune --apply --restart
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
+
+

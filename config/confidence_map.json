@@ -1,0 +1,42 @@
+{
+  "0": {
+    "expected_return": 0.0,
+    "count": 21587
+  },
+  "1": {
+    "expected_return": 0.0,
+    "count": 0
+  },
+  "2": {
+    "expected_return": -0.000803608683237485,
+    "count": 3471
+  },
+  "3": {
+    "expected_return": 0.0025339856016077618,
+    "count": 7091
+  },
+  "4": {
+    "expected_return": 0.0,
+    "count": 5589
+  },
+  "5": {
+    "expected_return": 0.0,
+    "count": 4947
+  },
+  "6": {
+    "expected_return": -0.0009119972508881166,
+    "count": 3839
+  },
+  "7": {
+    "expected_return": -0.000593812480107649,
+    "count": 2874
+  },
+  "8": {
+    "expected_return": -0.0025696841812326717,
+    "count": 2113
+  },
+  "9": {
+    "expected_return": 0.0,
+    "count": 966
+  }
+}

@@ -1,0 +1,12 @@
+[Unit]
+Description=Run Chloe Exploration Accelerator every 10 minutes (offset)
+
+[Timer]
+# Stagger slightly from other promotion timers (e.g., apply at minute 4/14/24...)
+OnCalendar=*:4/10
+AccuracySec=30s
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+

@@ -1,0 +1,62 @@
+{
+  "name": "high_vol_breakout_v1",
+  "description": "High-volatility breakout strategy: trades upside breakouts after consolidation in high_vol regime.",
+  "version": 1,
+  "status": "experimental",
+  "kind": "micro",
+  "scope": {
+    "symbols": ["ETHUSDT"],
+    "regimes": ["high_vol"],
+    "timeframes": ["1h"],
+    "direction": ["long"],
+    "priority": 10
+  },
+  "activation": {
+    "min_pf": 1.0,
+    "max_drawdown": 0.25,
+    "min_trades": 0,
+    "requires_manual_approval": false
+  },
+  "entry_logic": {
+    "type": "breakout",
+    "lookback_bars": 20,
+    "trigger": {
+      "metric": "close",
+      "relation": "above",
+      "reference": "bollinger_upper_20_2",
+      "min_distance_pct": 0.001
+    },
+    "filters": {
+      "confidence_min": 0.80,
+      "volatility_band": "high",
+      "max_spread_bps": 10,
+      "time_of_day_utc": {
+        "include_windows": []
+      },
+      "swarm_required_state": ["ok", "warn"],
+      "onchain": {
+        "gn_exchange_netflow": "<= 0",
+        "gn_addresses_active": "> 0"
+      }
+    }
+  },
+  "exit_logic": {
+    "tp_pct": 0.015,
+    "sl_pct": 0.010,
+    "max_hold_bars": 12,
+    "trailing": {
+      "enabled": false,
+      "trail_pct": 0.0075
+    }
+  },
+  "risk": {
+    "base_size_factor": 1.0,
+    "max_notional_usd": 500.0,
+    "min_notional_usd": 20.0,
+    "per_day_trade_limit": 20,
+    "per_day_loss_limit_usd": 500.0,
+    "override_observation_mode": false
+  },
+  "tags": ["high_vol", "breakout", "long_only"]
+}
+

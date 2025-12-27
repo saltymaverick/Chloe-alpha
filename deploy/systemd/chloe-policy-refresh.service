@@ -1,0 +1,14 @@
+[Unit]
+Description=Chloe Alpha - Policy Refresh (PF, Capital, Exploration Policy)
+After=network.target
+
+[Service]
+Type=oneshot
+User=root
+WorkingDirectory=/root/Chloe-alpha
+Environment="PYTHONPATH=/root/Chloe-alpha"
+ExecStart=/bin/bash -lc 'source venv/bin/activate && set -a; source .env; set +a && python3 -m tools.policy_refresh'
+Nice=10
+
+[Install]
+WantedBy=multi-user.target
