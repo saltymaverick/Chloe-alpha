@@ -2,7 +2,7 @@
 Chloe Alpha Read-Only API
 FastAPI service for dashboard data access.
 """
-from fastapi import FastAPI, Request, HTTPException
+from fastapi import FastAPI, Request, HTTPException, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 import uvicorn
@@ -48,6 +48,52 @@ async def root():
         "description": "Read-only dashboard data API",
         "docs": "/docs"
     }
+
+
+# HEAD handlers for Lovable compatibility (fixes N/A display issues)
+@app.head("/")
+def head_root():
+    return Response(status_code=200)
+
+
+@app.head("/health")
+def head_health():
+    return Response(status_code=200)
+
+
+@app.head("/status")
+def head_status():
+    return Response(status_code=200)
+
+
+@app.head("/pf")
+def head_pf():
+    return Response(status_code=200)
+
+
+@app.head("/positions")
+def head_positions():
+    return Response(status_code=200)
+
+
+@app.head("/symbols/states")
+def head_symbols_states():
+    return Response(status_code=200)
+
+
+@app.head("/trades/recent")
+def head_trades_recent():
+    return Response(status_code=200)
+
+
+@app.head("/promotion")
+def head_promotion():
+    return Response(status_code=200)
+
+
+@app.head("/openapi.json")
+def head_openapi():
+    return Response(status_code=200)
 
 
 @app.get("/status", response_model=ApiStatusResponse)
