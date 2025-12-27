@@ -109,6 +109,11 @@ python3 -m tools.wallet_cli set real
    ```bash
    git clone git@github.com:saltymaverick/Chloe-alpha.git
    cd Chloe-alpha
+
+   # Run setup script (configures hooks, creates .env)
+   ./tools/setup-hooks.sh
+
+   # Set up Python environment
    python3 -m venv venv
    source venv/bin/activate
    pip install -r requirements.txt
