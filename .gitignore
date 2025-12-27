@@ -33,3 +33,4 @@ __pycache__/
 .venv/
 venv/
 systemd/*.env
+systemd/chloe_api.env

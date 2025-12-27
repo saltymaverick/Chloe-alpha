@@ -72,6 +72,23 @@ Panels include:
 
 ---
 
+## 🌐 API Service
+
+Read-only FastAPI service for dashboard data:
+
+```bash
+# Development
+python3 -m engine_alpha.api.app
+
+# Production
+sudo systemctl start chloe_api
+```
+
+Endpoints: `/health`, `/pf`, `/positions`, `/symbols`, `/features`, `/trades/recent`, etc.
+See `docs/api.md` for details.
+
+---
+
 ## 🐝 SWARM (Supervisory Layer)
 
 Run manually:
