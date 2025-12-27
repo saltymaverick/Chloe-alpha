@@ -1,0 +1,40 @@
+[Unit]
+Description=Chloe Alpha API Service
+After=network.target
+Wants=network.target
+
+[Service]
+Type=simple
+User=chloe
+Group=chloe
+WorkingDirectory=/root/Chloe-alpha
+
+# Environment
+Environment=PYTHONPATH=/root/Chloe-alpha
+EnvironmentFile=-/etc/chloe/chloe_api.env
+
+# Command
+ExecStart=/root/Chloe-alpha/venv/bin/python -m uvicorn engine_alpha.api.app:app --host 0.0.0.0 --port 8001
+
+# Restart policy
+Restart=always
+RestartSec=5
+
+# Security
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ReadWritePaths=/root/Chloe-alpha/reports /root/Chloe-alpha/logs
+ProtectHome=yes
+
+# Resource limits
+MemoryLimit=512M
+CPUQuota=50%
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=chloe_api
+
+[Install]
+WantedBy=multi-user.target

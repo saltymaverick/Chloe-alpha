@@ -184,8 +184,8 @@ async def rate_limit_handler(request: Request, exc: HTTPException):
 
 if __name__ == "__main__":
     # For development/testing
-    port = int(os.getenv("CHLOE_API_PORT", "8000"))
-    host = os.getenv("CHLOE_API_HOST", "127.0.0.1")
+    port = int(os.getenv("CHLOE_API_PORT", "8001"))
+    host = os.getenv("CHLOE_API_HOST", "0.0.0.0")
 
     uvicorn.run(
         "engine_alpha.api.app:app",
