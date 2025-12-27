@@ -103,6 +103,59 @@ python3 -m tools.wallet_cli set real
 
 ## 🧩 For Developers
 
+### Development Workflow
+
+1. **Clone & Setup:**
+   ```bash
+   git clone git@github.com:saltymaverick/Chloe-alpha.git
+   cd Chloe-alpha
+   python3 -m venv venv
+   source venv/bin/activate
+   pip install -r requirements.txt
+   ```
+
+2. **Development Loop:**
+   ```bash
+   # Make changes
+   git checkout -b feature/your-feature
+   # Edit code...
+   git add .
+   git commit -m "feat: describe your changes"
+   git push origin feature/your-feature
+   ```
+
+3. **Code Quality:**
+   ```bash
+   # Format code
+   black .
+   isort .
+
+   # Lint
+   flake8 .
+
+   # Run tests
+   python3 -m pytest
+   ```
+
+4. **Environment Setup:**
+   ```bash
+   # Copy template (never commit real values)
+   cp .env_template .env
+   # Edit .env with your API keys
+   ```
+
+### Security Notes
+- **Never commit secrets** (.env, API keys, private keys)
+- **Use .env for local development**
+- **Production secrets** go in systemd environment files
+- **GitHub Actions** runs on code only (no secrets)
+
+### Branch Strategy
+- `main`: Production-ready code
+- `feature/*`: New features
+- `hotfix/*`: Urgent fixes
+- Tags: `phase-X.Y` for releases
+
 See:
 - `docs/developer_onboarding.md`
 - `docs/quant_research_handbook.md`
