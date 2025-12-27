@@ -10,9 +10,8 @@ import os
 
 from .auth import require_auth, check_rate_limit
 from .readers import (
-    get_health_status, get_pf_data, get_positions, get_symbol_states,
-    get_feature_audit, get_promotion_advice, get_promotion_queue,
-    get_recent_trades, get_meta_log_sizes
+    get_health_status, get_status_data, get_pf_data, get_positions, get_symbol_states,
+    get_promotion_data, get_recent_trades, get_meta_log_sizes
 )
 from .models import (
     HealthResponse, MetaLogSizesResponse, TradeEntry,
@@ -59,6 +58,16 @@ async def get_health(request: Request = require_auth, rate_limit: Request = chec
     return HealthResponse(**data)
 
 
+@app.get("/status")
+async def get_status(request: Request = require_auth, rate_limit: Request = check_rate_limit):
+    """Get Chloe system status."""
+    data, error = get_status_data()
+    if error:
+        raise HTTPException(status_code=404, detail=error)
+
+    return APIResponse(success=True, data=data)
+
+
 @app.get("/pf")
 async def get_pf(request: Request = require_auth, rate_limit: Request = check_rate_limit):
     """Get current PF (Profit Factor) data."""
@@ -89,30 +98,20 @@ async def get_symbols_data(request: Request = require_auth, rate_limit: Request 
     return APIResponse(success=True, data=data)
 
 
-@app.get("/features")
-async def get_features_data(request: Request = require_auth, rate_limit: Request = check_rate_limit):
-    """Get feature audit/status data."""
-    data, error = get_feature_audit()
+@app.get("/symbols/states")
+async def get_symbols_states_data(request: Request = require_auth, rate_limit: Request = check_rate_limit):
+    """Get symbol trading states."""
+    data, error = get_symbol_states()
     if error:
         raise HTTPException(status_code=404, detail=error)
 
     return APIResponse(success=True, data=data)
 
 
-@app.get("/promotion/advice")
-async def get_promotion_advice_data(request: Request = require_auth, rate_limit: Request = check_rate_limit):
-    """Get GPT promotion advice."""
-    data, error = get_promotion_advice()
-    if error:
-        raise HTTPException(status_code=404, detail=error)
-
-    return APIResponse(success=True, data=data)
-
-
-@app.get("/promotion/queue")
-async def get_promotion_queue_data(request: Request = require_auth, rate_limit: Request = check_rate_limit):
-    """Get shadow promotion queue."""
-    data, error = get_promotion_queue()
+@app.get("/promotion")
+async def get_promotion_data_endpoint(request: Request = require_auth, rate_limit: Request = check_rate_limit):
+    """Get promotion advice and auto promotions."""
+    data, error = get_promotion_data()
     if error:
         raise HTTPException(status_code=404, detail=error)
 

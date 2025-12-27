@@ -23,15 +23,15 @@ class SafeFileReader:
         "reports/loop/loop_health.json",
         "reports/pf_local.json",
         "reports/position_state.json",
-        "reports/risk/symbol_states.json",
-        "reports/feature_audit.json",
-        "reports/gpt/promotion_advice.json",
-        "reports/gpt/shadow_promotion_queue.json",
         "reports/trades.jsonl",
-        "reports/meta/counterfactual_ledger.jsonl",
-        "reports/meta/inaction_scoring.jsonl",
-        "reports/meta/fair_value_gaps.jsonl",
-        "reports/meta/opportunity_events.jsonl",
+        "reports/risk/symbol_states.json",
+        "reports/risk/auto_promotions.json",
+        "reports/gpt/promotion_advice.json",
+        "reports/counterfactual_ledger.jsonl",
+        "reports/inaction_performance_log.jsonl",
+        "reports/opportunity_events.jsonl",
+        "reports/fair_value_gaps.jsonl",
+        "reports/feature_audit.json",
     }
 
     @classmethod
@@ -191,13 +191,48 @@ def get_recent_trades(hours: int = 6, limit: int = 200) -> Tuple[Optional[List[D
     return SafeFileReader.tail_jsonl_file("reports/trades.jsonl", hours, limit)
 
 
+def get_status_data() -> Tuple[Optional[Dict[str, Any]], Optional[str]]:
+    """Get status data (same as tools.operator_status but structured)."""
+    # For now, return health data + basic system info
+    # TODO: In the future, this could parse tools.operator_status output
+    health_data, health_error = get_health_status()
+    if health_error:
+        return None, health_error
+
+    status_data = {
+        "health": health_data,
+        "system": {
+            "version": "1.0.0",
+            "api_status": "operational"
+        }
+    }
+    return status_data, None
+
+
+def get_promotion_data() -> Tuple[Optional[Dict[str, Any]], Optional[str]]:
+    """Get promotion data from advice and auto_promotions."""
+    advice_data, advice_error = SafeFileReader.read_json_file("reports/gpt/promotion_advice.json")
+    promotions_data, promotions_error = SafeFileReader.read_json_file("reports/risk/auto_promotions.json")
+
+    result = {}
+    if advice_data:
+        result["advice"] = advice_data
+    if promotions_data:
+        result["auto_promotions"] = promotions_data
+
+    if not result:
+        return None, "No promotion data available"
+
+    return result, None
+
+
 def get_meta_log_sizes() -> Dict[str, Any]:
     """Get sizes and metadata for key log files."""
     log_files = {
-        "counterfactual": "reports/meta/counterfactual_ledger.jsonl",
-        "inaction": "reports/meta/inaction_scoring.jsonl",
-        "fvg": "reports/meta/fair_value_gaps.jsonl",
-        "opportunity_events": "reports/meta/opportunity_events.jsonl",
+        "counterfactual": "reports/counterfactual_ledger.jsonl",
+        "inaction": "reports/inaction_performance_log.jsonl",
+        "opportunity": "reports/opportunity_events.jsonl",
+        "fvg": "reports/fair_value_gaps.jsonl",
     }
 
     result = {}

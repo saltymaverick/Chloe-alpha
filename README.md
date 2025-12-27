@@ -76,16 +76,49 @@ Panels include:
 
 Read-only FastAPI service for dashboard data:
 
-```bash
-# Development
-python3 -m engine_alpha.api.app
+## Setup
 
-# Production
-sudo systemctl start chloe_api
+1. **Set API Key:**
+   ```bash
+   export CHLOE_API_KEY="$(openssl rand -hex 32)"
+   echo "CHLOE_API_KEY=$CHLOE_API_KEY" > /etc/chloe/chloe_api.env
+   ```
+
+2. **Development:**
+   ```bash
+   python3 -m engine_alpha.api.app
+   ```
+
+3. **Production:**
+   ```bash
+   sudo cp systemd/chloe_api.service.example /etc/systemd/system/chloe_api.service
+   sudo systemctl daemon-reload
+   sudo systemctl enable --now chloe_api
+   ```
+
+## Endpoints
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/health` | Loop health status |
+| GET | `/status` | System status |
+| GET | `/pf` | Profit factor data |
+| GET | `/positions` | Current positions |
+| GET | `/trades/recent?limit=200` | Recent trades |
+| GET | `/symbols/states` | Symbol trading states |
+| GET | `/promotion` | Promotion advice & auto promotions |
+| GET | `/meta/sizes` | Log file sizes & metadata |
+
+## Authentication
+
+All requests require: `X-CHLOE-API-KEY: <your-key>`
+
+Example:
+```bash
+curl -H "X-CHLOE-API-KEY: your-key-here" http://localhost:8001/health
 ```
 
-Endpoints: `/health`, `/pf`, `/positions`, `/symbols`, `/features`, `/trades/recent`, etc.
-See `docs/api.md` for details.
+See `docs/api.md` for complete documentation.
 
 ---
 

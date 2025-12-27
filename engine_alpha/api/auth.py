@@ -8,35 +8,29 @@ from fastapi import HTTPException, Request, Depends
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 
 
-class ChloeTokenAuth:
-    """Token authentication for Chloe API endpoints."""
+class ChloeAPIAuth:
+    """API key authentication for Chloe API endpoints."""
 
     def __init__(self):
-        # Get token from environment (disabled if not set)
-        self.expected_token = os.getenv("CHLOE_API_TOKEN")
-        self.enabled = self.expected_token is not None
+        # Get API key from environment (disabled if not set)
+        self.expected_key = os.getenv("CHLOE_API_KEY")
+        self.enabled = self.expected_key is not None
 
     def authenticate(self, request: Request) -> bool:
-        """Check if request has valid token. Returns True if auth passes."""
+        """Check if request has valid API key. Returns True if auth passes."""
         if not self.enabled:
-            return True  # Auth disabled if no token set
+            return True  # Auth disabled if no key set
 
-        # Check X-CHLOE-TOKEN header first (preferred)
-        token = request.headers.get("X-CHLOE-TOKEN")
-        if not token:
-            # Fallback to Authorization header
-            auth = request.headers.get("Authorization")
-            if auth and auth.startswith("Bearer "):
-                token = auth[7:]  # Remove "Bearer " prefix
-
-        if not token:
+        # Check X-CHLOE-API-KEY header
+        api_key = request.headers.get("X-CHLOE-API-KEY")
+        if not api_key:
             return False
 
-        return token == self.expected_token
+        return api_key == self.expected_key
 
 
 # Global auth instance
-auth = ChloeTokenAuth()
+auth = ChloeAPIAuth()
 
 
 def require_auth(request: Request) -> Request:
@@ -45,12 +39,12 @@ def require_auth(request: Request) -> Request:
         if auth.enabled:
             raise HTTPException(
                 status_code=401,
-                detail="Invalid or missing API token. Use X-CHLOE-TOKEN header or Authorization: Bearer <token>"
+                detail="Invalid or missing API key. Use X-CHLOE-API-KEY header."
             )
         else:
             raise HTTPException(
                 status_code=503,
-                detail="API authentication not configured. Set CHLOE_API_TOKEN environment variable."
+                detail="API authentication not configured. Set CHLOE_API_KEY environment variable."
             )
 
     return request
