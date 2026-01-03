@@ -16,6 +16,11 @@ from engine_alpha.risk.recovery_earnback import (
     compute_earnback_state,
     get_default_recovery_config,
 )
+from engine_alpha.risk.auto_governance import (
+    apply_governance_to_policy,
+    get_governance_summary,
+    DEFAULT_THRESHOLDS,
+)
 
 ROOT = Path(__file__).resolve().parents[1]
 REPORTS = ROOT / "reports"
@@ -42,8 +47,27 @@ def main() -> int:
     exploration_cfg = (cfg.get("exploration_mode") or {}) if isinstance(cfg, dict) else {}
     exploration_lane_cfg = (cfg.get("exploration_lane") or {}) if isinstance(cfg, dict) else {}
 
-    # Collect symbols from capital_protection, promotions, exploration overrides, and asset registry
+    # Collect symbols from canonical registry (single source of truth)
     symbols = set()
+
+    # Load from canonical asset registry via registries module
+    try:
+        from engine_alpha.core.registries import list_symbols
+        registry_symbols = list_symbols(enabled_only=True)
+        symbols.update(registry_symbols)
+        print(f"Loaded {len(registry_symbols)} symbols from canonical asset registry (registries module)")
+    except Exception as e:
+        print(f"Failed to load from asset registry: {e}")
+        # Fallback to old method
+        try:
+            from engine_alpha.core.symbol_registry import get_registry_symbols
+            registry_symbols = get_registry_symbols(enabled_only=True)
+            symbols.update(registry_symbols)
+            print(f"Loaded {len(registry_symbols)} symbols from fallback registry loader")
+        except Exception as e2:
+            print(f"Fallback also failed: {e2}")
+
+    # Add symbols from other sources (promotions, overrides, etc.)
     if isinstance(capital_protection, dict):
         cp_symbols = capital_protection.get("symbols") or capital_protection.get("per_symbol") or {}
         if isinstance(cp_symbols, dict):
@@ -63,16 +87,6 @@ def main() -> int:
 
     symbols.update(promotions.keys() if isinstance(promotions, dict) else [])
     symbols.update(exploration_overrides.keys() if isinstance(exploration_overrides, dict) else [])
-
-    # Add asset registry symbols so stances/policy are populated even when capital_protection is empty
-    try:
-        asset_reg = _read_json(ROOT / "config" / "asset_registry.json")
-        reg_syms = asset_reg.get("symbols") if isinstance(asset_reg, dict) else []
-        if isinstance(reg_syms, list):
-            for s in reg_syms:
-                symbols.add(str(s).upper())
-    except Exception:
-        pass
 
     # Add quarantined symbols
     if isinstance(quarantine, dict):
@@ -246,10 +260,63 @@ def main() -> int:
         loss_24h = len([p for p in pct_24h if p < 0])
         loss_streak_24h = _loss_streak([(ts, p) for ts, p in events if ts >= cutoff_24h])
 
-        # Base allows
-        allow_exploration = expl_enabled and expl_lane_enabled and not quarantined
-        allow_core = False
-        allow_recovery = False
+        # Get symbol metadata and defaults from canonical registry
+        try:
+            from engine_alpha.core.registries import get_symbol, get_symbol_defaults
+            symbol_metadata = get_symbol(sym_upper)
+            if symbol_metadata:
+                symbol_class = symbol_metadata.class_name
+                symbol_defaults = get_symbol_defaults(sym_upper)
+                # Extract allow_* flags from defaults
+                class_defaults = {
+                    "allow_core": symbol_defaults.get("allow_core", False),
+                    "allow_exploration": symbol_defaults.get("allow_exploration", True),
+                    "allow_scalp": symbol_defaults.get("allow_scalp", False),
+                    "allow_expansion": symbol_defaults.get("allow_expansion", True),
+                    "allow_recovery": symbol_defaults.get("allow_recovery", False),
+                }
+                # Build caps_by_lane from registry defaults and class-based scaling
+                from engine_alpha.core.symbol_registry import get_default_permissions_by_class
+                full_class_defaults = get_default_permissions_by_class(symbol_class)
+                class_defaults["caps_by_lane"] = full_class_defaults.get("caps_by_lane", {})
+            else:
+                raise ValueError(f"Symbol {sym_upper} not found in registry")
+        except Exception as e:
+            print(f"WARNING: Failed to load symbol {sym_upper} from registry: {e}")
+            # Fallback if registry loading fails
+            class_defaults = {
+                "allow_core": False,
+                "allow_exploration": True,
+                "allow_scalp": False,
+                "allow_expansion": True,
+                "allow_recovery": False
+            }
+            symbol_class = "mid"
+            from engine_alpha.core.symbol_registry import get_default_permissions_by_class
+            class_defaults["caps_by_lane"] = get_default_permissions_by_class("mid").get("caps_by_lane", {})
+
+        # Base allows from class defaults (ensure all lanes from lane_registry are represented)
+        # Load lane registry to ensure we emit permissions for all registered lanes
+        try:
+            from engine_alpha.core.registries import list_lanes, get_all_lane_ids
+            all_lane_ids = get_all_lane_ids()
+        except Exception:
+            # Fallback to known lanes
+            all_lane_ids = {"core", "exploration", "scalp", "expansion", "recovery"}
+        
+        allow_exploration = class_defaults.get("allow_exploration", True) and expl_enabled and expl_lane_enabled and not quarantined
+        allow_scalp = class_defaults.get("allow_scalp", False)
+        allow_expansion = class_defaults.get("allow_expansion", True) and not quarantined
+        allow_core = class_defaults.get("allow_core", False)
+        allow_recovery = class_defaults.get("allow_recovery", False)
+
+        # EMERGENCY SCALP DISABLE: Check for global disable flag
+        # Can be set via SCALP_DISABLE=1 environment variable or config/scalp_disabled.flag file
+        import os
+        scalp_disable_file = ROOT / "config" / "scalp_disabled.flag"
+        if os.getenv("SCALP_DISABLE") == "1" or scalp_disable_file.exists():
+            allow_scalp = False
+            reasons["emergency_safety"] = "SCALP globally disabled for PF protection"
 
         # REVIEW bootstrap: exploration only, block core/recovery
         # (In sample-building mode we disable review_bootstrap and may force global mode to normal)
@@ -258,12 +325,12 @@ def main() -> int:
             allow_recovery = False
             allow_exploration = not quarantined
 
-        # Ladder: quarantine overrides all
+        # Ladder: quarantine overrides all except recovery (earn-back)
         if quarantined:
             state_val = "quarantined"
             allow_core = False
             allow_exploration = False
-            allow_recovery = False
+            allow_recovery = True  # Allow quarantined symbols to earn back via recovery
         else:
             pf_unknown = pf_7d is None
             # Halted but not quarantined -> apply earn-back logic
@@ -321,12 +388,14 @@ def main() -> int:
                     # regardless of stance - the point is to build meaningful samples
                     allow_exploration = True  # Always allow exploration in sample building
                     allow_core = True  # Always allow core in sample building
+                    allow_expansion = True  # Allow expansion in sample building
                     allow_recovery = False
                     reasons["sample_building"] = "n_closes_7d < 30: allow sampling (core+exploration), defer all PF enforcement"
                 elif closes_7d < 60:
                     state_val = "evaluation"
                     allow_exploration = allow_exploration and stance != "halt"
                     allow_core = True if stance != "halt" else False
+                    allow_expansion = allow_core  # Expansion follows core permissions
                     allow_recovery = False
                     reasons["evaluation"] = "n_closes_7d 30-60: PF tracking active, no quarantine/recovery enforcement"
                 else:
@@ -363,6 +432,12 @@ def main() -> int:
                     allow_core = earnback_state["allow_core"]
                     allow_exploration = earnback_state["allow_exploration"]
                     allow_recovery = earnback_state["allow_recovery"]
+                    allow_scalp = True  # Lane-specific: SCALP always allowed for quarantined symbols
+
+                    # Apply global SCALP disable if active
+                    scalp_disable_file = ROOT / "config" / "scalp_disabled.flag"
+                    if os.getenv("SCALP_DISABLE") == "1" or scalp_disable_file.exists():
+                        allow_scalp = False
 
                     reasons["earnback"] = f"Stage: {earnback_state['recovery_stage']}, PF: {pf_7d:.2f}"
                     if (
@@ -377,6 +452,7 @@ def main() -> int:
                     ):
                         state_val = "core"
                         allow_core = True
+                        allow_expansion = True  # Good PF = allow expansion trading
                         allow_exploration = True
                         allow_recovery = False
                         reasons["core"] = f"PF {pf_7d:.2f} >= 1.05 in enforcement phase"
@@ -421,31 +497,42 @@ def main() -> int:
             sample_stage = "enforcement"
 
         # Phase 5I: Toxic PF quarantine only in enforcement phase (>= 60 closes)
+        # LANE-SPECIFIC QUARANTINE: Only quarantine if criteria met
         toxic_pf = closes_7d >= 60 and pf_7d is not None and pf_7d < 0.85
         if toxic_pf:
+            # CORE-SPECIFIC QUARANTINE: Block CORE but allow SCALP/EXPLORATION
             quarantined = True
-            state_val = "quarantined"
+            state_val = "core_quarantined"  # Lane-specific quarantine
             allow_core = False
-            allow_exploration = False
-            allow_recovery = False
+            allow_exploration = True  # Lane-specific: exploration/scalp still allowed
+            allow_scalp = True        # Lane-specific: scalp still allowed
+            allow_recovery = True     # Allow quarantined symbols to earn back via recovery
             sample_stage = "quarantined"
-            reasons["quarantine_override"] = "pf7d_floor (pf7d < 0.85 with n>=60)"
+            reasons["quarantine_override"] = "pf7d_floor (pf7d < 0.85 with n>=60) - CORE quarantined, exploration/scalp allowed"
+        else:
+            # Reset quarantine flags if criteria not met
+            quarantined = False
+            allow_scalp = True  # SCALP always allowed (lane-specific)
 
-        # caps_by_lane
-        caps_by_lane = {
-            "core": {
-                "risk_mult_cap": core_risk_cap_eff,
-                "max_positions": core_max_pos_eff,
-            },
-            "exploration": {
-                "risk_mult_cap": expl_risk_cap,  # Phase 5I: >= 0.08 for real signal
-                "max_positions": min(max(expl_cap, 1), 2),
-            },
-            "recovery": {
-                "risk_mult_cap": min(rec_risk_cap, 0.10),
-                "max_positions": min(rec_max_positions, 1),
-            },
-        }
+        # Apply global SCALP disable if active
+        scalp_disable_file = ROOT / "config" / "scalp_disabled.flag"
+        if os.getenv("SCALP_DISABLE") == "1" or scalp_disable_file.exists():
+            allow_scalp = False
+
+        # caps_by_lane - use class defaults with overrides
+        caps_by_lane = class_defaults["caps_by_lane"].copy()
+
+        # Apply class-specific caps
+        caps_by_lane["core"]["risk_mult_cap"] = core_risk_cap_eff
+        caps_by_lane["core"]["max_positions"] = core_max_pos_eff
+        caps_by_lane["exploration"]["risk_mult_cap"] = expl_risk_cap  # Phase 5I: >= 0.08 for real signal
+        caps_by_lane["exploration"]["max_positions"] = min(max(expl_cap, 1), 2)
+        caps_by_lane["recovery"]["risk_mult_cap"] = min(rec_risk_cap, caps_by_lane["recovery"]["risk_mult_cap"])
+        caps_by_lane["recovery"]["max_positions"] = min(rec_max_positions, caps_by_lane["recovery"]["max_positions"])
+
+        # Ensure expansion caps use class defaults
+        caps_by_lane.setdefault("expansion", class_defaults["caps_by_lane"]["expansion"])
+        caps_by_lane.setdefault("scalp", class_defaults["caps_by_lane"]["scalp"])
 
         policy = {
             "state": state_val,
@@ -456,7 +543,9 @@ def main() -> int:
             "promotion_expires_at": promo_expires,
             "exploration_override": expl_override if isinstance(expl_override, dict) else None,
             "allow_core": allow_core,
+            "allow_expansion": allow_expansion,
             "allow_exploration": allow_exploration,
+            "allow_scalp": allow_scalp,
             "allow_recovery": allow_recovery,
             "caps_by_lane": caps_by_lane,
             "last_updated": datetime.now(timezone.utc).isoformat(),
@@ -481,7 +570,29 @@ def main() -> int:
                 },
         }
 
+        # ============================================
+        # AUTO-GOVERNANCE: Apply promotion/demotion rules
+        # This is the AUTHORITATIVE source for CORE decisions
+        # ============================================
+        policy, gov_decision = apply_governance_to_policy(
+            policy=policy,
+            symbol=sym_upper,
+            thresholds=DEFAULT_THRESHOLDS,
+        )
+        
         payload["symbols"][sym_upper] = policy
+
+    # Generate governance summary for observability
+    gov_summary = get_governance_summary(payload["symbols"])
+    payload["governance_summary"] = gov_summary
+    
+    # Log summary
+    print(f"\n=== AUTO-GOVERNANCE SUMMARY ===")
+    print(f"CORE symbols ({gov_summary['core_count']}): {', '.join(gov_summary['core_symbols']) or 'none'}")
+    print(f"Avg CORE PF: {gov_summary['avg_core_pf']:.3f}" if gov_summary['avg_core_pf'] else "Avg CORE PF: N/A")
+    print(f"Quarantined: {', '.join(gov_summary['quarantined_symbols']) or 'none'}")
+    print(f"Sample building: {', '.join(gov_summary['sample_building_symbols']) or 'none'}")
+    print(f"================================\n")
 
     atomic_write_symbol_states(payload)
     print(f"symbol_states written to {STATE_PATH}")
