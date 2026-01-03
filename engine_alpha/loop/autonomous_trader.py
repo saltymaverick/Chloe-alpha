@@ -4,11 +4,12 @@ import hashlib
 import json
 import os
 import time
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from typing import Dict, Any, List, Tuple
 
 import yaml
+import dateutil.parser
 
 from engine_alpha.signals.signal_processor import get_signal_vector, get_signal_vector_live
 from engine_alpha.core.confidence_engine import decide, COUNCIL_WEIGHTS, apply_bucket_mask, REGIME_BUCKET_MASK
@@ -19,6 +20,9 @@ from engine_alpha.core.profit_amplifier import evaluate as pa_evaluate, risk_mul
 from engine_alpha.core.risk_adapter import evaluate as risk_eval
 from engine_alpha.core.opportunity_density import update_opportunity_state, save_state, load_state
 from engine_alpha.loop.execute_trade import open_if_allowed, close_now
+from engine_alpha.loop.lanes import resolve_lane
+from engine_alpha.loop.lanes.registry import registry as lane_registry
+from engine_alpha.loop.lanes.base import LaneDecision, LaneContext
 from engine_alpha.loop.position_manager import (
     get_open_position,
     set_position,
@@ -35,6 +39,7 @@ from engine_alpha.reflect.regime_uncertainty import assess_regime_uncertainty
 from engine_alpha.reflect.edge_half_life import analyze_edge_strength
 from engine_alpha.reflect.meta_intelligence import assess_meta_decision_quality
 from engine_alpha.reflect.fair_value_gaps import detect_and_log_fvgs
+from engine_alpha.reflect.missed_expansion_analytics import record_expansion_analytics
 from engine_alpha.core import position_sizing
 
 TRADES_PATH = REPORTS / "trades.jsonl"
@@ -49,6 +54,17 @@ IS_PAPER_MODE = os.getenv("MODE", "PAPER").upper() == "PAPER"
 MIN_CONF_LIVE_DEFAULT = 0.55
 MIN_CONF_LIVE = float(os.getenv("MIN_CONF_LIVE", MIN_CONF_LIVE_DEFAULT))
 
+def _parse_timestamp(ts_str: str) -> datetime | None:
+    """Parse timestamp string to datetime, handling various formats."""
+    try:
+        if not ts_str:
+            return None
+        # Handle ISO format with Z suffix
+        ts_str = ts_str.replace("Z", "+00:00")
+        return dateutil.parser.isoparse(ts_str)
+    except Exception:
+        return None
+
 # -----------------------------------------------------------------------------
 # Entry threshold config (per-regime floors, tuned via tools/threshold_tuner.py)
 # -----------------------------------------------------------------------------
@@ -57,7 +73,7 @@ ENTRY_THRESHOLDS_DEFAULT: dict[str, float] = {
     "trend_down": 0.50,
     "high_vol": 0.55,
     "trend_up": 0.60,
-    "chop": 0.25,  # Further lowered for Phase 5J chop testing
+    "chop": 0.25,  # Lowered back to reduce false negatives in chop regime detection
 }
 
 
@@ -101,6 +117,176 @@ _ENTRY_THRESHOLDS: dict[str, float] = _load_entry_thresholds()
 
 # Unified neutral zone threshold (all modes use same value)
 NEUTRAL_THRESHOLD_DEFAULT = 0.25  # Lowered from 0.30 to reduce false neutralizations
+
+# Phase 5J-R: Chop exploration cooldown to prevent micro-churn
+CHOP_EXPLORATION_COOLDOWN_MINUTES = 15  # 15 minutes between chop exploration attempts
+_CHOP_COOLDOWN_FILE = REPORTS / "risk" / "chop_cooldowns.json"
+
+# CORE lane safeguards to prevent scalping behavior
+_CORE_COOLDOWN_FILE = REPORTS / "risk" / "core_cooldowns.json"
+
+# CORE Extreme TP Override (rare opportunity capture)
+EXTREME_TP_ATR_MULTIPLE = 2.5  # 2.5x ATR for extreme move detection
+EXTREME_TP_MIN_TIME_SECONDS = 90  # Minimum 90 seconds even for extreme moves
+EXTREME_TP_MAX_RATIO = 0.05  # Max 5% of CORE trades can be extreme TP
+EXTREME_TP_ATR_MULT = 2.5  # ATR multiplier for extreme TP threshold
+EXTREME_TP_ABS_PCT_FALLBACK = 0.012  # 1.20% absolute fallback if ATR unavailable
+_EXTREME_TP_TRACKING_FILE = REPORTS / "risk" / "extreme_tp_tracking.json"
+
+def _load_chop_cooldowns():
+    """Load chop exploration cooldowns from persistent storage."""
+    if not _CHOP_COOLDOWN_FILE.exists():
+        return {}
+    try:
+        with _CHOP_COOLDOWN_FILE.open("r") as f:
+            data = json.load(f)
+            # Convert ISO strings back to timestamps for comparison
+            return data
+    except Exception:
+        return {}
+
+def _save_chop_cooldowns(cooldowns):
+    """Save chop exploration cooldowns to persistent storage."""
+    try:
+        _CHOP_COOLDOWN_FILE.parent.mkdir(parents=True, exist_ok=True)
+        with _CHOP_COOLDOWN_FILE.open("w") as f:
+            json.dump(cooldowns, f, indent=2)
+        print(f"CHOP_COOLDOWN_SAVED: {len(cooldowns)} cooldowns to {_CHOP_COOLDOWN_FILE}")
+    except Exception as e:
+        print(f"CHOP_COOLDOWN_SAVE_ERROR: {e}")
+
+def _load_core_cooldowns():
+    """Load CORE lane cooldowns from persistent storage."""
+    if not _CORE_COOLDOWN_FILE.exists():
+        return {}
+    try:
+        with _CORE_COOLDOWN_FILE.open("r") as f:
+            data = json.load(f)
+            return data
+    except Exception:
+        return {}
+
+def _save_core_cooldowns(cooldowns):
+    """Save CORE lane cooldowns to persistent storage."""
+    try:
+        _CORE_COOLDOWN_FILE.parent.mkdir(parents=True, exist_ok=True)
+        with _CORE_COOLDOWN_FILE.open("w") as f:
+            json.dump(cooldowns, f, indent=2)
+        print(f"CORE_COOLDOWN_SAVED: {len(cooldowns)} cooldowns to {_CORE_COOLDOWN_FILE}")
+    except Exception as e:
+        print(f"CORE_COOLDOWN_SAVE_ERROR: {e}")
+
+# Load cooldowns at module startup
+_CHOP_EXPLORATION_COOLDOWN = _load_chop_cooldowns()
+_CORE_COOLDOWN = _load_core_cooldowns()
+
+def _load_extreme_tp_tracking():
+    """Load extreme TP tracking data."""
+    if not _EXTREME_TP_TRACKING_FILE.exists():
+        return {"total_extreme_tp": 0, "total_core_trades": 0, "last_reset": None}
+    try:
+        with _EXTREME_TP_TRACKING_FILE.open("r") as f:
+            return json.load(f)
+    except Exception:
+        return {"total_extreme_tp": 0, "total_core_trades": 0, "last_reset": None}
+
+def _save_extreme_tp_tracking(tracking):
+    """Save extreme TP tracking data."""
+    try:
+        _EXTREME_TP_TRACKING_FILE.parent.mkdir(parents=True, exist_ok=True)
+        with _EXTREME_TP_TRACKING_FILE.open("w") as f:
+            json.dump(tracking, f, indent=2)
+    except Exception as e:
+        print(f"EXTREME_TP_TRACKING_SAVE_ERROR: {e}")
+
+def _check_extreme_tp_governance():
+    """Check if extreme TP overrides are within governance limits."""
+    tracking = _load_extreme_tp_tracking()
+    total_extreme = tracking.get("total_extreme_tp", 0)
+    total_core = tracking.get("total_core_trades", 0)
+
+    if total_core == 0:
+        return True
+
+    ratio = total_extreme / total_core
+    return ratio <= EXTREME_TP_MAX_RATIO
+
+def _record_extreme_tp(symbol, pnl_pct, time_held):
+    """Record an extreme TP event for governance tracking."""
+    tracking = _load_extreme_tp_tracking()
+    tracking["total_extreme_tp"] = tracking.get("total_extreme_tp", 0) + 1
+    tracking["total_core_trades"] = tracking.get("total_core_trades", 0) + 1
+
+    # Check governance limits
+    if not _check_extreme_tp_governance():
+        print(f"GOVERNANCE_WARNING: Extreme TP ratio exceeded {EXTREME_TP_MAX_RATIO:.1%}, disabling override")
+        # TODO: Could disable override here by setting a flag
+
+    _save_extreme_tp_tracking(tracking)
+    print(f"EXTREME_TP_RECORDED: {symbol} pnl={pnl_pct:.2f}% time_held={time_held}s (governance_ok={_check_extreme_tp_governance()})")
+
+def _is_extreme_tp_override(lane_id, unrealized_pnl_pct, time_held_seconds, regime, volatility_regime=None, regime_info=None):
+    """
+    Check if CORE position qualifies for extreme TP override.
+    Allows early exit only for objectively exceptional market moves.
+    """
+    if lane_id != "core":
+        return False
+
+    # Governance check: ensure we haven't exceeded frequency limits
+    if not _check_extreme_tp_governance():
+        return False
+
+    # Time constraint: must hold at least minimum time even for extreme moves
+    if time_held_seconds < EXTREME_TP_MIN_TIME_SECONDS:
+        return False
+
+    # Price expansion threshold: must be exceptional move
+    # Use ATR-based threshold (2.5x ATR) or fallback to absolute %
+    extreme_threshold_pct = EXTREME_TP_ABS_PCT_FALLBACK * 100  # Convert to percentage
+    try:
+        # TODO: Implement ATR calculation for proper threshold
+        # For now, use absolute threshold
+        pass
+    except Exception:
+        pass
+
+    if abs(unrealized_pnl_pct) < extreme_threshold_pct:
+        return False
+
+    # Regime guard: allow in trending/high_vol, block in chop unless special conditions
+    allowed_regimes = {"trend_up", "trend_down", "high_vol"}
+    blocked_regimes = {"chop"}
+
+    if regime in blocked_regimes:
+        # Special case: allow chop if vol_expanding AND compression_breakout
+        if not (volatility_regime == "expanding" and regime_info and
+                regime_info.get("compression_breakout", False)):
+            return False
+    elif regime not in allowed_regimes:
+        return False
+
+    return True
+
+def _cleanup_expired_chop_cooldowns():
+    """Clean up expired chop exploration cooldowns."""
+    now_dt = datetime.now(timezone.utc)
+    expired_symbols = []
+    for symbol, cooldown_iso in _CHOP_EXPLORATION_COOLDOWN.items():
+        try:
+            cooldown_dt = datetime.fromisoformat(cooldown_iso.replace("Z", "+00:00"))
+            if now_dt >= cooldown_dt:
+                expired_symbols.append(symbol)
+        except Exception:
+            # Invalid timestamp, remove it
+            expired_symbols.append(symbol)
+
+    for symbol in expired_symbols:
+        del _CHOP_EXPLORATION_COOLDOWN[symbol]
+
+    if expired_symbols:
+        print(f"CHOP_COOLDOWN_CLEANUP: Removed expired cooldowns for {expired_symbols}")
+        _save_chop_cooldowns(_CHOP_EXPLORATION_COOLDOWN)
 NEUTRAL_THRESHOLD = float(os.getenv("COUNCIL_NEUTRAL_THRESHOLD", str(NEUTRAL_THRESHOLD_DEFAULT)))
 
 MIN_HOLD_BARS_LIVE_DEFAULT = 4 if IS_PAPER_MODE else 2  # Phase 52: Longer min-hold in PAPER
@@ -488,10 +674,19 @@ def _load_exit_config() -> Dict[str, float]:
 
 
 def run_step(entry_min_conf: float = 0.70, exit_min_conf: float = 0.30, reverse_min_conf: float = 0.60):
+    # Load config for default symbol/timeframe
+    from engine_alpha.core.config_loader import load_engine_config
+    cfg = load_engine_config()
+    symbol = cfg.get("symbol", "ETHUSDT")
+    timeframe = cfg.get("timeframe", "1h")
+
     exit_cfg = _load_exit_config()
     decay_bars = exit_cfg["DECAY_BARS"]
     take_profit_conf = exit_cfg["TAKE_PROFIT_CONF"]
     stop_loss_conf = exit_cfg["STOP_LOSS_CONF"]
+
+    # Apply regime-specific adjustments (will be updated after regime determination)
+    regime_specific_adjustments_done = False
 
     policy = _load_policy()
 
@@ -499,7 +694,77 @@ def run_step(entry_min_conf: float = 0.70, exit_min_conf: float = 0.30, reverse_
     decision = decide(out["signal_vector"], out["raw_registry"])
     final = decision["final"]
     regime = decision["regime"]
-    
+    price_based_regime = regime  # For compatibility
+
+    print(f"SIGNAL_PROCESSED: {symbol}_{timeframe} final_dir={final.get('dir')} final_conf={final.get('conf'):.2f}")
+    print(f"ABOUT_TO_EXEC_LANE: {symbol}_{timeframe} final_dir={final.get('dir')} final_conf={final.get('conf'):.2f}")
+    print(f"REACHED_LANE_EXEC_SECTION: {symbol}_{timeframe} - lane execution section entered")
+    print(f"LANE_EXEC_PRE: {symbol}_{timeframe} resolved_lane={resolved_lane_id}")
+
+    # Execute lane-specific logic now that we have signal data
+    print(f"LANE_EXEC_DEBUG: {symbol}_{timeframe} executing lane {resolved_lane_id} with final_dir={final.get('dir')} final_conf={final.get('conf'):.2f}")
+    try:
+        lane_instance = lane_registry.get_lane(resolved_lane_id, {})
+        print(f"LANE_EXEC_DEBUG: {symbol}_{timeframe} got lane instance {lane_instance}")
+        # Build proper LaneContext object
+        lane_ctx = LaneContext(
+            symbol=symbol,
+            timeframe=timeframe,
+            regime=price_based_regime,
+            signal_vector={
+                "direction": final["dir"],
+                "confidence": final["conf"],
+                "regime": price_based_regime,
+                "close": signal_dict.get("close", 0) if signal_dict else 0,
+                "atr": signal_dict.get("atr", 0.02) if signal_dict else 0.02,
+            },
+            position=None,  # Will be populated if there's an open position
+            policy_state=symbol_policy if isinstance(symbol_policy, dict) else {},
+            market_data={
+                "regime": price_based_regime,
+                "regime_info": regime_info,
+                "micro_regime": micro_regime_data.get('micro_regime') if micro_regime_data else None,
+                "expansion_event": expansion_event
+            },
+            loop_state={}
+        )
+
+        lane_result = lane_instance.execute_tick(lane_ctx)
+
+        if lane_result.decision == LaneDecision.SKIP:
+            print(f"LANE_SKIP: {symbol}_{timeframe} lane={resolved_lane_id} reason={lane_result.reason}")
+            return  # Skip this symbol
+
+        # Use lane-determined risk multiplier
+        risk_mult = lane_result.risk_mult
+
+    except Exception as e:
+        print(f"LANE_ERROR: {symbol}_{timeframe} lane={resolved_lane_id} error={e}")
+        selected_lane_for_analytics = None  # Error = no trade
+        return  # Skip on error
+
+    # Record expansion analytics if we have regime data
+    if micro_regime_data:
+        regime_for_analytics = {
+            "regime": price_based_regime,
+            "micro_regime": micro_regime_data.get('micro_regime', 'unknown'),
+            "conf": micro_regime_data.get('confidence', 0.0),
+            "expansion_event": expansion_event,
+            "expansion_strength": micro_regime_data.get('expansion_strength', 0.0),
+            "follow_through": micro_regime_data.get('follow_through', False)
+        }
+        # Determine final selected lane for analytics
+        final_selected_lane = resolved_lane_id if 'lane_result' in locals() and lane_result.decision != LaneDecision.SKIP else None
+        record_expansion_analytics(symbol, regime_for_analytics, final_selected_lane)
+
+    # For run_step() (batch mode), lane_id will be determined from position data during closes
+    # No default lane here - it's per-position
+
+    # Provide defaults for variables that exist in run_step_live() but not here
+    chop_micro_churn_throttle = 1.0  # No throttling in batch mode
+
+    print(f"BEFORE_SIGNAL_PROCESSING: {symbol}_{timeframe} about to call get_signal_vector")
+
     # Use regime-specific thresholds from decision.gates, with parameter as fallback
     gates = decision.get("gates", {})
     regime_entry_min_conf = gates.get("entry_min_conf", entry_min_conf)
@@ -515,17 +780,25 @@ def run_step(entry_min_conf: float = 0.70, exit_min_conf: float = 0.30, reverse_
     adapter_band = adapter.get("band") or "N/A"
     adapter["mult"] = adapter_mult
     adapter["band"] = adapter_band
-    rmult = max(0.5, min(1.25, float(pa_mult) * adapter_mult))
+
+    # Apply symbol-class-specific risk_mult for CORE lane
+    base_rmult = max(0.5, min(1.25, float(pa_mult) * adapter_mult))
+
+    # Lane-specific risk_mult will be applied after lane resolution (lane_id not available yet)
+    rmult = base_rmult
 
     # PAPER + band C override: slightly softer entry threshold for learning
     effective_entry_min_conf = regime_entry_min_conf
-    # TEMPORARY: Lower threshold for chop regime testing
-    if regime == "chop":
-        effective_entry_min_conf = min(effective_entry_min_conf, 0.35)
+    # Chop regime uses higher entry threshold set above (no override needed)
     is_paper_mode = True  # run_step() is PAPER mode
     if is_paper_mode and adapter_band == "C":
         effective_entry_min_conf = max(0.0, regime_entry_min_conf - 0.03)
         print(f"ENTRY-DEBUG: PAPER band=C using softened entry_min_conf={effective_entry_min_conf:.2f} (final_conf={final['conf']:.2f})")
+
+    # Apply regime-specific adjustments after PAPER override
+    if price_based_regime == "chop":
+        # Increase entry threshold in chop to prevent micro-churn
+        effective_entry_min_conf = max(effective_entry_min_conf, 0.80)  # Require very high confidence in chop
 
     # META-INTELLIGENCE: Assess regime uncertainty and edge half-life
     # This provides second-order intelligence for trading decisions
@@ -666,14 +939,21 @@ def run_step(entry_min_conf: float = 0.70, exit_min_conf: float = 0.30, reverse_
 
     opened = False
     if policy.get("allow_opens", True):
+        # Apply chop micro-churn throttling
+        effective_rmult = rmult * chop_micro_churn_throttle
+
+        # DEBUG: Log when we attempt to open
+        print(f"OPEN_ATTEMPT: {symbol}_{timeframe} dir={final['dir']} conf={final['conf']:.2f} rmult={effective_rmult:.2f}")
+
         opened = open_if_allowed(final_dir=final["dir"],
-                                 final_conf=final["conf"],
-                                 entry_min_conf=effective_entry_min_conf,
-                                 risk_mult=rmult,
-                                 regime=price_based_regime,  # Use price_based_regime directly to avoid variable shadowing
-                                 risk_band=adapter_band,  # Pass risk_band for observability
-                                 symbol=symbol,
-                                 timeframe=timeframe)
+                             final_conf=final["conf"],
+                             entry_min_conf=effective_entry_min_conf,
+                             risk_mult=effective_rmult,
+                             regime=price_based_regime,  # Use price_based_regime directly to avoid variable shadowing
+                             risk_band=adapter_band,  # Pass risk_band for observability
+                             symbol=symbol,
+                             timeframe=timeframe,
+                             lane_id=lane_id)
         if opened:
             _annotate_last_open(float(pa_mult), adapter, rmult)
         else:
@@ -753,7 +1033,33 @@ def run_step(entry_min_conf: float = 0.70, exit_min_conf: float = 0.30, reverse_
         if close_pct is not None:
             # Use stored regime from position for exit logging
             stored_regime = pos.get("regime") or pos.get("regime_at_entry") or regime or "unknown"
-            close_now(pct=close_pct, regime=stored_regime)
+
+            # DEBUG: Log position regime data for debugging
+            print(f"REGIME_DEBUG_CLOSE: {symbol}_{timeframe} pos={pos} current_regime={regime} stored_regime={stored_regime}")
+            print(f"REGIME_DEBUG_CLOSE: pos keys: {list(pos.keys()) if pos else 'None'}")
+
+            # Regression check: warn if we're closing with unknown regime but position had stored regime
+            if stored_regime == "unknown" and (pos.get("regime") or pos.get("regime_at_entry")):
+                print(f"REGIME_REGRESSION_WARNING: {symbol}_{timeframe} close with unknown regime but position had stored regime")
+            # Get lane_id from position data (positions remember their opening lane)
+            pos_lane_id = pos.get('lane_id') if pos else None
+            actual_lane_id = pos_lane_id or lane_id  # Fallback to global default if position doesn't have it
+            close_now(pct=close_pct, regime=stored_regime, lane_id=actual_lane_id)
+
+            # Set CORE cooldown after closing a CORE position
+            if actual_lane_id == "core":
+                try:
+                    from engine_alpha.core.config_loader import load_engine_config
+                    cfg = load_engine_config()
+                    core_cooldown_seconds = cfg.get("core_cooldown_seconds", 900)  # Default 15 minutes
+                    cooldown_until_dt = datetime.now(timezone.utc) + timedelta(seconds=core_cooldown_seconds)
+                    cooldown_until_iso = cooldown_until_dt.isoformat().replace("+00:00", "Z")
+                    _CORE_COOLDOWN[symbol] = cooldown_until_iso
+                    _save_core_cooldowns(_CORE_COOLDOWN)
+                    print(f"CORE_COOLDOWN_SET: {symbol} for {core_cooldown_seconds}s (reason: core_close)")
+                except Exception as e:
+                    print(f"CORE_COOLDOWN_SET_ERROR: {symbol} {e}")
+
             clear_position()
             if flip and policy.get("allow_opens", True):
                 if open_if_allowed(
@@ -765,6 +1071,7 @@ def run_step(entry_min_conf: float = 0.70, exit_min_conf: float = 0.30, reverse_
                     risk_band=adapter_band,  # Pass risk_band for observability
                     symbol=symbol,
                     timeframe=timeframe,
+                    lane_id=lane_id,
                 ):
                     _annotate_last_open(float(pa_mult), adapter, rmult)
 
@@ -840,20 +1147,19 @@ def run_step_live(symbol: str = "ETHUSDT",
                   now: Optional[datetime] = None):
     """
     Run one step of the trading loop.
-    
+
     Args:
         symbol: Trading symbol (e.g., "ETHUSDT")
         timeframe: Timeframe (e.g., "1h")
         limit: Number of bars to fetch for signals
-        entry_min_conf: Minimum confidence for entry (legacy, now computed internally)
-        exit_min_conf: Minimum confidence for exit
-        reverse_min_conf: Minimum confidence for reversal
-        bar_ts: Bar timestamp string (for logging)
-        now: Current time as datetime (for cooldown/guardrails). If None, uses datetime.utcnow()
     """
+    print(f"RUN_STEP_LIVE_START: {symbol}_{timeframe}")
     # Phase 51: Anti-Thrash Guardrails - Reset per-bar state
     global _LAST_BAR_STATE
-    
+
+    # Phase 5J-R: Clean up expired chop exploration cooldowns
+    _cleanup_expired_chop_cooldowns()
+
     # Use provided now or current UTC time
     if now is None:
         now = datetime.now(timezone.utc)
@@ -878,6 +1184,15 @@ def run_step_live(symbol: str = "ETHUSDT",
     stop_loss_conf_base = exit_cfg["STOP_LOSS_CONF"]
 
     policy = _load_policy()
+    print(f"POLICY_LOADED: {symbol} policy_keys={list(policy.keys()) if policy else 'None'}")
+
+    # Load symbol policy state and resolve lane
+    from engine_alpha.risk.symbol_state import load_symbol_states
+    symbol_states = load_symbol_states()
+    sym_policy_map = symbol_states.get("symbols", {}) if isinstance(symbol_states, dict) else {}
+    symbol_policy = sym_policy_map.get(symbol, {}) if isinstance(sym_policy_map, dict) else {}
+
+    # Lane resolution moved to after regime determination
 
     # Phase 52.5: Price-based regime detection
     # Get OHLCV rows for price-based regime classification
@@ -894,7 +1209,192 @@ def run_step_live(symbol: str = "ETHUSDT",
     regime_metrics = regime_info.get("metrics", {})
     if DEBUG_REGIME:
         print(f"REGIME-DEBUG: price_based_regime={price_based_regime} metrics={regime_metrics}")
-    
+
+    # Resolve execution lane using canonical logic (single source of truth)
+    # Now that we have regime information, we can make informed lane decisions
+
+    # Load micro-regime data from regime fusion if available
+    micro_regime_data = None
+    expansion_event = False
+    try:
+        from engine_alpha.core.regime_fusion import REPORT_PATH
+        import json
+        if REPORT_PATH.exists():
+            with open(REPORT_PATH, 'r') as f:
+                fusion_data = json.load(f)
+                symbol_key = f"{symbol}:{timeframe}"
+                symbol_data = None
+                if symbol_key in fusion_data.get('symbols', {}):
+                    symbol_data = fusion_data['symbols'][symbol_key]
+                elif timeframe == "1h":
+                    # Fallback to 15m data for 1h trading (regime analysis done on 15m)
+                    fallback_key = f"{symbol}:15m"
+                    if fallback_key in fusion_data.get('symbols', {}):
+                        symbol_data = fusion_data['symbols'][fallback_key]
+                        print(f"MICRO_REGIME_FALLBACK: Using 15m data for {symbol} 1h trading")
+
+                if symbol_data and 'micro_regime' in symbol_data:
+                    micro_regime_data = symbol_data['micro_regime']
+                    expansion_event = micro_regime_data.get('expansion_event', False)
+                    print(f"MICRO_REGIME_LOADED: {symbol} expansion_event={expansion_event}, micro_regime={micro_regime_data.get('micro_regime')}")
+                else:
+                    print(f"MICRO_REGIME_MISSING: {symbol} no micro_regime data found")
+    except Exception as e:
+        # Micro-regime data not available, continue without it
+        pass
+
+    lane_context = {
+        "regime": price_based_regime,
+        "regime_info": regime_info,
+        "timeframe": timeframe,
+        "micro_regime": micro_regime_data.get('micro_regime') if micro_regime_data else None,
+        "expansion_event": expansion_event,
+    }
+    # Phase: CORE chop entry block (CORE must NOT scalp) - BEFORE lane resolution
+    if price_based_regime == "chop" and not expansion_event:
+        # Force lane to exploration for chop regime when no expansion event (CORE never trades chop)
+        lane_context_forced = lane_context.copy()
+        lane_context_forced["force_exploration"] = True
+
+        lane_id = resolve_lane(symbol, symbol_policy, lane_context_forced)
+        if lane_id == "core":
+            # This shouldn't happen with force_exploration, but double-check
+            print(f"CORE_ENTRY_BLOCK_CHOP: {symbol}_{timeframe} regime={price_based_regime} - Forcing exploration for chop")
+            lane_id = "exploration"
+    else:
+        # Allow normal lane resolution (including EXPANSION) in chop if expansion_event is present
+        lane_id = resolve_lane(symbol, symbol_policy, lane_context)
+
+    # Store resolved lane_id for later execution after signal processing
+    resolved_lane_id = lane_id
+    print(f"LANE_RESOLVED: {symbol}_{timeframe} resolved_lane={resolved_lane_id}")
+
+    # Lane-specific risk_mult will be applied after final rmult calculation
+
+    lane_reason = f"policy_stage_{symbol_policy.get('stage', 'unknown')}_allow_core_{symbol_policy.get('allow_core', False)}_regime_{price_based_regime}"
+
+    # Phase: CORE lane cooldown enforcement (15min after CORE close)
+    if lane_id == "core":
+        now_dt = datetime.now(timezone.utc)
+        core_cooldown_iso = _CORE_COOLDOWN.get(symbol)
+        if core_cooldown_iso:
+            try:
+                core_cooldown_dt = datetime.fromisoformat(core_cooldown_iso.replace("Z", "+00:00"))
+                if now_dt < core_cooldown_dt:
+                    remaining_seconds = (core_cooldown_dt - now_dt).total_seconds()
+                    remaining_minutes = remaining_seconds / 60
+                    print(f"CORE_COOLDOWN_BLOCK: {symbol}_{timeframe} remaining={remaining_minutes:.1f}min reason=core_cooldown")
+                    return  # Early return - skip this symbol entirely
+                else:
+                    # Cooldown expired, remove it
+                    del _CORE_COOLDOWN[symbol]
+                    _save_core_cooldowns(_CORE_COOLDOWN)
+                    print(f"CORE_COOLDOWN_EXPIRED: {symbol} cooldown passed")
+            except Exception as e:
+                print(f"CORE_COOLDOWN_ERROR: {symbol} invalid cooldown {core_cooldown_iso}: {e}")
+
+    # Phase 5J-R: Early chop exploration cooldown check (before signal processing)
+    if price_based_regime == "chop":
+        now_dt = datetime.now(timezone.utc)
+        cooldown_iso = _CHOP_EXPLORATION_COOLDOWN.get(symbol)
+        if cooldown_iso:
+            try:
+                cooldown_dt = datetime.fromisoformat(cooldown_iso.replace("Z", "+00:00"))
+                if now_dt < cooldown_dt:
+                    remaining_seconds = (cooldown_dt - now_dt).total_seconds()
+                    remaining_minutes = remaining_seconds / 60
+                    print(f"CHOP_EXPLORATION_COOLDOWN: {symbol} blocked, {remaining_minutes:.1f}min remaining")
+                    return  # Early return - skip this symbol entirely
+                else:
+                    print(f"COOLDOWN_EXPIRED: {symbol} cooldown passed")
+            except Exception as e:
+                print(f"CHOP_COOLDOWN_PARSE_ERROR: {symbol} {cooldown_iso} - {e}")
+                del _CHOP_EXPLORATION_COOLDOWN[symbol]
+                _save_chop_cooldowns(_CHOP_EXPLORATION_COOLDOWN)
+
+    print(f"AFTER_CHOP_COOLDOWN: {symbol}_{timeframe} continuing to signal processing")
+
+    # Phase: Chop Micro-Churn Detection and Throttling
+    def _detect_chop_micro_churn_throttle(symbol: str, timeframe: str) -> float:
+        """
+        Detect micro-churn in chop regime and apply throttling.
+        Returns multiplier < 1.0 to reduce trading activity when micro-churn detected.
+        """
+        try:
+            # Load recent trades for this symbol/timeframe
+            trades_file = REPORTS / "trades.jsonl"
+            if not trades_file.exists():
+                return 1.0
+
+            cutoff = datetime.now(timezone.utc) - timedelta(hours=1)  # Last hour
+            recent_trades = []
+
+            with trades_file.open("r") as f:
+                for line in f:
+                    line = line.strip()
+                    if not line:
+                        continue
+                    try:
+                        trade = json.loads(line)
+                        if (trade.get("type") == "close" and
+                            trade.get("symbol") == symbol.upper() and
+                            trade.get("timeframe") == timeframe.lower()):
+                            ts = trade.get("ts")
+                            if ts:
+                                dt = _parse_timestamp(ts)
+                                if dt and dt >= cutoff:
+                                    recent_trades.append(trade)
+                    except Exception:
+                        continue
+
+            if len(recent_trades) < 5:
+                return 1.0  # Not enough data
+
+            # Analyze for micro-churn: trades that last < 30 seconds
+            micro_churn_count = 0
+            total_trades = len(recent_trades)
+
+            for trade in recent_trades:
+                entry_ts = trade.get("entry_ts") or trade.get("ts")
+                exit_ts = trade.get("ts") or trade.get("exit_ts")
+                if entry_ts and exit_ts:
+                    try:
+                        entry_dt = _parse_timestamp(entry_ts)
+                        exit_dt = _parse_timestamp(exit_ts)
+                        duration = (exit_dt - entry_dt).total_seconds()
+                        if duration < 30:  # Micro-churn threshold
+                            micro_churn_count += 1
+                    except Exception:
+                        continue
+
+            micro_churn_rate = micro_churn_count / total_trades
+
+            # Apply throttling based on micro-churn rate
+            if micro_churn_rate > 0.5:  # >50% micro-churn
+                print(f"CHOP_MICRO_CHURN_THROTTLE: {symbol}_{timeframe} rate={micro_churn_rate:.2f} micro={micro_churn_count}/{total_trades} -> 0.3x")
+                return 0.3  # Heavy throttling
+            elif micro_churn_rate > 0.3:  # >30% micro-churn
+                print(f"CHOP_MICRO_CHURN_THROTTLE: {symbol}_{timeframe} rate={micro_churn_rate:.2f} micro={micro_churn_count}/{total_trades} -> 0.6x")
+                return 0.6  # Moderate throttling
+            elif micro_churn_rate > 0.2:  # >20% micro-churn
+                print(f"CHOP_MICRO_CHURN_THROTTLE: {symbol}_{timeframe} rate={micro_churn_rate:.2f} micro={micro_churn_count}/{total_trades} -> 0.8x")
+                return 0.8  # Light throttling
+
+            return 1.0  # No throttling
+
+        except Exception as e:
+            print(f"CHOP_MICRO_CHURN_ERROR: {e}")
+            return 1.0  # Fail-safe: no throttling
+
+    # Phase: Chop Micro-Churn Throttling
+    chop_micro_churn_throttle = 1.0
+    if price_based_regime == "chop":
+        chop_micro_churn_throttle = _detect_chop_micro_churn_throttle(symbol, timeframe)
+        if chop_micro_churn_throttle < 1.0:
+            print(f"CHOP_MICRO_CHURN_THROTTLE: {symbol}_{timeframe} regime={price_based_regime} throttle={chop_micro_churn_throttle:.2f}")
+
+    print(f"AFTER_MICRO_CHURN: {symbol} continuing to signal processing")
+
     # Extract volatility metrics for Phase 54
     atr_pct = regime_metrics.get("atr_pct", 0.0)
     vol_expansion = regime_metrics.get("vol_expansion", 1.0)
@@ -903,13 +1403,23 @@ def run_step_live(symbol: str = "ETHUSDT",
     # Phase: Stabilization - Unified regime classification (no special modes)
     # Regime is determined purely from price data, same for all modes
 
-    out = get_signal_vector_live(symbol=symbol, timeframe=timeframe, limit=limit)
-    # Pass price-based regime to decide() so council aggregation uses correct regime
-    decision = decide(out["signal_vector"], out["raw_registry"], regime_override=price_based_regime)
-    final = decision["final"]
+    try:
+        out = get_signal_vector_live(symbol=symbol, timeframe=timeframe, limit=limit)
+        print(f"SIGNAL_VECTOR_GOT: {symbol} signals={len(out.get('signal_vector', []))}")
+        # Pass price-based regime to decide() so council aggregation uses correct regime
+        decision = decide(out["signal_vector"], out["raw_registry"], regime_override=price_based_regime)
+        print(f"DECIDE_COMPLETED: {symbol} decision_keys={list(decision.keys()) if decision else 'None'}")
+        final = decision["final"]
+        print(f"FINAL_DECISION: {symbol} dir={final.get('dir')} conf={final.get('conf'):.3f}")
+    except Exception as e:
+        print(f"SIGNAL_PROCESSING_ERROR: {symbol} {e}")
+        return  # Early return on signal processing error
     # Use price-based regime (already passed to decide(), but keep for consistency)
     regime = price_based_regime
-    
+
+    # Apply regime-specific adjustments after signal processing
+    # (Moved to after effective_entry_min_conf declaration)
+
     # Phase 52.5: Map panic_down to trend_down for weights lookup
     # Note: We use REGIME_BUCKET_WEIGHTS, not COUNCIL_WEIGHTS (legacy)
     regime_for_weights = "trend_down" if regime == "panic_down" else regime
@@ -1079,11 +1589,20 @@ def run_step_live(symbol: str = "ETHUSDT",
     # Debug logging for thresholds (low-volume, per bar)
     if DEBUG_SIGNALS:
         print(f"THRESHOLDS: regime={price_based_regime} risk_band={adapter_band} entry_min={effective_min_conf_live:.2f}")
-        print(f"EXIT-THRESHOLDS: regime={regime} tp_conf={take_profit_conf:.2f} sl_conf={stop_loss_conf:.2f}")
+        print(f"EXIT-THRESHOLDS: regime={price_based_regime} tp_conf={take_profit_conf:.2f} sl_conf={stop_loss_conf:.2f}")
     adapter["mult"] = adapter_mult
     adapter["band"] = adapter_band
     rmult = max(0.5, min(1.25, float(pa_mult) * adapter_mult))
-    
+
+    # Apply lane-specific risk_mult adjustments now that lane_id is resolved and rmult is final
+    if lane_id in ["core", "scalp", "exploration"]:
+        from engine_alpha.loop.lanes.resolver import get_symbol_class, get_lane_defaults
+        symbol_class = get_symbol_class(symbol)
+        lane_defaults = get_lane_defaults(lane_id, symbol_class)
+        lane_specific_rmult = lane_defaults.get("risk_mult", rmult)  # fallback to current rmult if not found
+        rmult = lane_specific_rmult
+
+
     # Phase 56: Dynamic Risk Scaling - Regime-based risk multiplier (PAPER only)
     def _regime_rmult(price_based_regime: str) -> float:
         """
@@ -1251,7 +1770,8 @@ def run_step_live(symbol: str = "ETHUSDT",
             regime=regime,
             risk_band=adapter_band,
             symbol=symbol,
-            timeframe=timeframe
+            timeframe=timeframe,
+            lane_id=lane_id
         )
         
         if not opened_local:
@@ -1328,29 +1848,30 @@ def run_step_live(symbol: str = "ETHUSDT",
     # Step 2: Check confidence threshold
     # TEMPORARY: More lenient for chop regime testing
     threshold_to_use = effective_min_conf_live
-    if regime == "chop":
-        # Check if we have exploration-specific chop threshold
-        from engine_alpha.core.config_loader import load_engine_config
-        cfg = load_engine_config()
-        chop_exploration_min = cfg.get("chop_exploration_entry_min")
+    # Chop regime exploration disabled due to micro-churn - requires high confidence
+    # BUT: Allow EXPANSION lane very permissive entry when expansion_event is detected
+    expansion_event_active = micro_regime_data and micro_regime_data.get('expansion_event', False)
+    is_expansion_lane = resolved_lane_id == "expansion"
 
-        # For chop regime, if meanrev confidence is strong enough, use it for exploration
-        # This allows exploration trades when meanrev signal is clear, even if overall confidence is low
-        meanrev_conf = None
-        if decision and decision.get("buckets"):
-            meanrev_bucket = decision["buckets"].get("meanrev", {})
-            if meanrev_bucket.get("dir") == final_dir:  # Same direction as final
-                meanrev_conf = meanrev_bucket.get("conf", 0.0)
+    print(f"THRESHOLD_DEBUG: {symbol} regime={regime} lane={resolved_lane_id} expansion_event={expansion_event_active} conf={effective_final_conf:.3f}")
 
-        if meanrev_conf and meanrev_conf >= 0.20:  # Weak meanrev signal for exploration sample building
-            threshold_to_use = min(threshold_to_use, meanrev_conf - 0.01)  # Allow entry just below meanrev conf
-            print(f"CHOP_MEANREV_BYPASS: using meanrev_conf={meanrev_conf:.2f} as threshold")
-        elif chop_exploration_min is not None:
-            threshold_to_use = min(threshold_to_use, chop_exploration_min)
-        else:
-            threshold_to_use = min(threshold_to_use, 0.30)  # Allow 0.32 confidence
+    if regime == "chop" and not (is_expansion_lane and expansion_event_active):
+        threshold_to_use = max(threshold_to_use, 0.80)  # Require very high confidence in chop (unless EXPANSION with expansion_event)
+        print(f"THRESHOLD_CHOP_PENALTY: {symbol} applied chop penalty, threshold={threshold_to_use}")
+    elif is_expansion_lane and expansion_event_active:
+        # EXPANSION with expansion_event gets very permissive threshold (matches lane logic)
+        threshold_to_use = 0.25
+        print(f"THRESHOLD_EXPANSION_BYPASS: {symbol} using EXPANSION threshold {threshold_to_use}")
+    else:
+        print(f"THRESHOLD_BYPASS: {symbol} bypass chop penalty (expansion_event={expansion_event_active})")
 
-    if allow_opens and effective_final_dir != 0 and effective_final_conf < threshold_to_use:
+    # Special case: Allow EXPANSION lane with expansion_event + follow_through to bypass confidence threshold
+    threshold_rejected = allow_opens and effective_final_dir != 0 and effective_final_conf < threshold_to_use
+    follow_through_active = micro_regime_data and micro_regime_data.get('follow_through', False)
+    expansion_bypass = (is_expansion_lane and expansion_event_active and follow_through_active)
+    print(f"BYPASS_CHECK: {symbol} threshold_rejected={threshold_rejected}, is_expansion_lane={is_expansion_lane}, expansion_event_active={expansion_event_active}, follow_through_active={follow_through_active}, bypass={expansion_bypass}")
+
+    if threshold_rejected and not expansion_bypass:
         if DEBUG_SIGNALS:
             print(f"ENTRY-THRESHOLD: skip trade dir={effective_final_dir} conf={effective_final_conf:.2f} < entry_min={threshold_to_use:.2f}")
         # Build result dict for early return
@@ -1366,14 +1887,90 @@ def run_step_live(symbol: str = "ETHUSDT",
             "equity_live": position_sizing.read_equity_live(),
             "pnl": 0.0,
         }
+
+    if expansion_bypass and threshold_rejected:
+        print(f"EXPANSION_CONFIDENCE_BYPASS: {symbol} conf={effective_final_conf:.3f} < {threshold_to_use:.3f} but expansion_event + follow_through allows continuation")
     
     # META-INTELLIGENCE: Record inaction for decisions that cannot proceed
     # This catches blocking at the FINAL_DECISION level with deduplication
     _log_inaction_if_blocked(symbol, timeframe, effective_final_dir, effective_final_conf,
                            price_based_regime, allow_opens, effective_min_conf_live)
 
+    # LANE EXECUTION: Execute lane-specific logic now that we have signal data
+    print(f"LANE_EXEC_PRE: {symbol}_{timeframe} resolved_lane={resolved_lane_id}")
+
+    # Execute lane-specific logic now that we have signal data
+    print(f"LANE_EXEC_DEBUG: {symbol}_{timeframe} executing lane {resolved_lane_id} with final_dir={effective_final_dir} final_conf={effective_final_conf:.2f}")
+    try:
+        lane_instance = lane_registry.get_lane(resolved_lane_id, {})
+        print(f"LANE_EXEC_DEBUG: {symbol}_{timeframe} got lane instance {lane_instance}")
+        # Build proper LaneContext object
+        lane_ctx = LaneContext(
+            symbol=symbol,
+            timeframe=timeframe,
+            regime=price_based_regime,
+            signal_vector={
+                "direction": effective_final_dir,
+                "confidence": effective_final_conf,
+                "regime": price_based_regime,
+                "close": out.get("signal", {}).get("close", 0),
+                "atr": out.get("signal", {}).get("atr", 0.02),
+            },
+            position=None,  # Will be populated if there's an open position
+            policy_state=policy if isinstance(policy, dict) else {},
+            market_data={
+                "regime": price_based_regime,
+                "regime_info": regime_info,
+                "micro_regime": micro_regime_data.get('micro_regime') if micro_regime_data else None,
+                "expansion_event": expansion_event
+            },
+            loop_state={}
+        )
+
+        lane_result = lane_instance.execute_tick(lane_ctx)
+
+        if lane_result.decision == LaneDecision.SKIP:
+            print(f"LANE_SKIP: {symbol}_{timeframe} lane={resolved_lane_id} reason={lane_result.reason}")
+            # Lane chose to skip - respect this decision
+            return {
+                "ts": bar_ts or _now(),
+                "regime": regime,
+                "final": final,
+                "policy": policy,
+                "pa": {"armed": bool(pa_status.get("armed")), "rmult": float(pa_mult)},
+                "risk_adapter": adapter,
+                "context": out.get("context", {}),
+                "equity_live": position_sizing.read_equity_live(),
+                "trading_decision": "lane_skip",
+                "lane_skip_reason": lane_result.reason,
+                "pnl": 0.0,
+            }
+
+        # Lane approved the trade - continue with opening logic
+        print(f"LANE_APPROVED: {symbol}_{timeframe} lane={resolved_lane_id} proceeding to trade opening")
+
+    except Exception as e:
+        print(f"LANE_ERROR: {symbol}_{timeframe} lane={resolved_lane_id} error={e}")
+        # On lane error, skip this symbol
+        return {
+            "ts": bar_ts or _now(),
+            "regime": regime,
+            "final": final,
+            "policy": policy,
+            "pa": {"armed": bool(pa_status.get("armed")), "rmult": float(pa_mult)},
+            "risk_adapter": adapter,
+            "context": out.get("context", {}),
+            "equity_live": position_sizing.read_equity_live(),
+            "trading_decision": "lane_error",
+            "lane_error": str(e),
+            "pnl": 0.0,
+        }
+
     # Step 3: Attempt to open (regime gate and threshold checks passed)
-    can_open = (allow_opens and effective_final_dir != 0 and effective_final_conf >= effective_min_conf_live)
+    # Use the modified threshold that accounts for EXPANSION bypass
+    final_threshold = threshold_to_use if not expansion_bypass else 0.0  # Allow any confidence for EXPANSION bypass
+    can_open = (allow_opens and effective_final_dir != 0 and effective_final_conf >= final_threshold)
+    print(f"CAN_OPEN_CHECK: {symbol} can_open={can_open}, allow_opens={allow_opens}, final_dir={effective_final_dir}, final_threshold={final_threshold}, conf={effective_final_conf:.3f}, expansion_bypass={expansion_bypass}")
     opened = False
     if can_open:
         if not (live_pos and live_pos.get("dir") == effective_final_dir):
@@ -1415,9 +2012,28 @@ def run_step_live(symbol: str = "ETHUSDT",
 
         # Exit conditions based on P&L thresholds (not signal direction)
         # TP: profitable position (pct > profit threshold)
-        # SL: adverse position (pct < loss threshold)
-        profit_threshold = 0.002  # 0.2% profit to take profits
-        loss_threshold = -0.001   # -0.1% loss to cut losses
+        # SCALP lane uses ATR-based exits, others use percentage-based
+        if lane_id == "scalp":
+            # SCALP: ATR-based TP/SL
+            from engine_alpha.loop.lanes.resolver import get_lane_defaults, get_symbol_class
+            symbol_class = get_symbol_class(symbol)
+            scalp_defaults = get_lane_defaults("scalp", symbol_class)
+
+            # Get ATR for symbol (simplified - would need actual ATR calculation)
+            # For now, use conservative defaults
+            atr_pct = 0.005  # Assume 0.5% ATR, would be calculated from actual ATR
+
+            tp_atr_mult = scalp_defaults.get("tp_atr_mult", 0.3)
+            sl_atr_mult = scalp_defaults.get("sl_atr_mult", 0.45)
+
+            profit_threshold = tp_atr_mult * atr_pct
+            loss_threshold = -sl_atr_mult * atr_pct
+
+            print(f"SCALP_THRESHOLDS: {symbol} ATR~{atr_pct:.3f} TP={profit_threshold:.4f} SL={loss_threshold:.4f}")
+        else:
+            # Standard percentage-based exits
+            profit_threshold = 0.002  # 0.2% profit to take profits
+            loss_threshold = -0.001   # -0.1% loss to cut losses
 
         take_profit = current_pct is not None and current_pct >= profit_threshold
         stop_loss = current_pct is not None and current_pct <= loss_threshold
@@ -1475,17 +2091,87 @@ def run_step_live(symbol: str = "ETHUSDT",
             except Exception:
                 age_seconds = 0
 
-        # Check time-based min-hold guard
-        # TP and SL based on P&L can fire anytime (they're based on actual profitability)
-        # Only signal-based exits (drop, flip) need min-hold to prevent thrashing
-        if age_seconds < min_hold_seconds:
-            # P&L-based exits (TP, SL) can fire immediately when thresholds are hit
-            # Only signal-based exits (drop, flip) must wait for min-hold
-            if drop or flip:
-                print(f"EXIT_SKIP_MIN_HOLD: {symbol}_{timeframe} age_s={age_seconds:.1f} < min_s={min_hold_seconds}, skip exit (reason: {'drop' if drop else 'reverse'})")
+        # Check exit hierarchy with safety and opportunity capture
+        # 1. SAFETY: Stop losses ALWAYS override (capital protection)
+        # 2. EXTREME TP: Rare opportunity capture for CORE
+        # 3. MIN-HOLD: Quality control for lane discipline
+        # 4. NORMAL EXITS: Allowed after min-hold
+
+        core_min_hold_seconds = 1800  # 30 minutes for CORE
+        try:
+            from engine_alpha.core.config_loader import load_engine_config
+            cfg = load_engine_config()
+            core_min_hold_seconds = cfg.get("core_min_hold_seconds", 1800)
+        except Exception:
+            pass  # Use default
+
+        # Determine effective min-hold based on lane and symbol class
+        from engine_alpha.loop.lanes.resolver import get_symbol_class, get_lane_defaults
+
+        symbol_class = get_symbol_class(symbol)
+        lane_defaults = get_lane_defaults(lane_id, symbol_class)
+
+        # Use symbol-class-specific min-hold for CORE, defaults for others
+        if lane_id == "core":
+            effective_min_hold = lane_defaults.get("min_hold_s", core_min_hold_seconds)
+        else:
+            lane_min_hold_map = {
+                "exploration": 15,
+                "recovery": 30,
+                "quarantine": 0,
+                "scalp": 0,  # Scalp allows immediate exits
+            }
+            effective_min_hold = lane_min_hold_map.get(lane_id, min_hold_seconds)
+
+        # Calculate unrealized P&L for extreme TP check
+        unrealized_pnl_pct = 0.0
+        if entry_price and exit_price:
+            try:
+                entry_val = float(entry_price)
+                exit_val = float(exit_price)
+                dir_val = int(live_pos.get("dir", 1))
+                if entry_val > 0:
+                    raw_change = (exit_val - entry_val) / entry_val
+                    signed_change = raw_change * dir_val
+                    unrealized_pnl_pct = signed_change * 100  # Convert to percentage
+            except (TypeError, ValueError):
+                pass
+
+        # Check extreme TP override for CORE take profits
+        extreme_tp_override = False
+        if take_profit and lane_id == "core":
+            extreme_tp_override = _is_extreme_tp_override(
+                lane_id=lane_id,
+                unrealized_pnl_pct=unrealized_pnl_pct,
+                time_held_seconds=age_seconds,
+                regime=price_based_regime,
+                volatility_regime=None,  # TODO: Pass actual volatility regime
+                regime_info=regime_info
+            )
+
+        if extreme_tp_override:
+            # EXTREME TP OVERRIDE: Allow immediate exit for exceptional moves
+            print(f"EXTREME_TP_OVERRIDE: {symbol}_{timeframe} pnl={unrealized_pnl_pct:.2f}% age_s={age_seconds:.1f} (rare opportunity capture)")
+            _record_extreme_tp(symbol, unrealized_pnl_pct, age_seconds)
+            # Allow take_profit to proceed, block others
+            stop_loss = False
+            drop = False
+            flip = False
+        elif age_seconds < effective_min_hold:
+            # SAFETY OVERRIDE: Stop losses ALWAYS fire immediately (capital protection)
+            if stop_loss:
+                print(f"SAFETY_OVERRIDE: {symbol}_{timeframe} stop_loss firing immediately despite min_hold (capital protection)")
+                # Allow stop_loss to proceed
+                take_profit = False
                 drop = False
                 flip = False
-            # TP and SL are allowed (based on actual P&L, not signal timing)
+            else:
+                # LANE RULES: Block non-safety exits until minimum hold
+                if take_profit or drop or flip:
+                    print(f"CORE_MIN_HOLD_BLOCK: {symbol}_{timeframe} age_s={age_seconds:.1f} < min_s={effective_min_hold} (lane={lane_id}), blocking non-safety exit")
+                take_profit = False
+                drop = False
+                flip = False
 
         # NEW: For tp/sl/drop/flip exits, require live price - no fallback allowed
         live_price = None
@@ -1507,8 +2193,78 @@ def run_step_live(symbol: str = "ETHUSDT",
                 stop_loss = False
                 drop = False
                 flip = False
-        
-        # Evaluate exits - P&L-based exits (TP/SL) can fire anytime, signal-based need min-hold
+
+        # Apply lane-specific minimum hold time enforcement
+        # Prevent micro-churn by requiring minimum position hold times
+        position_age_seconds = int((now - entry_ts_dt).total_seconds())
+
+        # Load CORE minimum hold time from config
+        core_min_hold_seconds = 900  # Default 15 minutes
+        try:
+            from engine_alpha.core.config_loader import load_engine_config
+            cfg = load_engine_config()
+            core_min_hold_seconds = cfg.get("core_min_hold_seconds", 900)
+        except Exception:
+            pass  # Use default
+
+        # Lane-specific minimum hold times
+        lane_min_hold_seconds_map = {
+            "core": core_min_hold_seconds,  # Configurable for production trades
+            "exploration": 15,              # 15 seconds minimum for exploration
+            "recovery": 30,                 # 30 seconds for recovery
+            "quarantine": 0,                # No minimum for quarantine
+        }
+        min_hold_required = lane_min_hold_seconds_map.get(lane_id, 0)
+
+        # Calculate unrealized P&L for extreme TP check
+        unrealized_pnl_pct = 0.0
+        if pos_info.get("entry_px") and exit_price:
+            try:
+                entry_val = float(pos_info.get("entry_px"))
+                exit_val = float(exit_price)
+                dir_val = int(pos_info.get("dir", 1))
+                if entry_val > 0:
+                    raw_change = (exit_val - entry_val) / entry_val
+                    signed_change = raw_change * dir_val
+                    unrealized_pnl_pct = signed_change * 100  # Convert to percentage
+            except (TypeError, ValueError):
+                pass
+
+        # Check extreme TP override for CORE take profits
+        extreme_tp_override = False
+        if take_profit and lane_id == "core":
+            extreme_tp_override = _is_extreme_tp_override(
+                lane_id=lane_id,
+                unrealized_pnl_pct=unrealized_pnl_pct,
+                time_held_seconds=position_age_seconds,
+                regime=stored_regime or "unknown"
+            )
+
+        if extreme_tp_override:
+            # EXTREME TP OVERRIDE: Allow immediate exit for exceptional moves
+            print(f"EXTREME_TP_OVERRIDE: {symbol}_{timeframe} pnl={unrealized_pnl_pct:.2f}% age_s={position_age_seconds:.1f} (rare opportunity capture)")
+            _record_extreme_tp(symbol, unrealized_pnl_pct, position_age_seconds)
+            # Allow take_profit to proceed, block others
+            stop_loss = False
+            drop = False
+            flip = False
+        elif position_age_seconds < min_hold_required:
+            # SAFETY OVERRIDE: Stop losses ALWAYS fire immediately (capital protection)
+            if stop_loss:
+                print(f"SAFETY_OVERRIDE: {symbol}_{timeframe} stop_loss firing immediately despite min_hold (capital protection)")
+                # Allow stop_loss to proceed
+                take_profit = False
+                drop = False
+                flip = False
+            else:
+                # LANE RULES: Block non-safety exits until minimum hold
+                if take_profit or drop or flip:
+                    print(f"EXIT_BLOCK_MIN_HOLD: {symbol}_{timeframe} age={position_age_seconds}s < min={min_hold_required}s (lane={lane_id}), blocking non-safety exit")
+                take_profit = False
+                drop = False
+                flip = False
+
+        # Evaluate exits - P&L-based exits (TP/SL) can fire anytime after min-hold, signal-based need min-hold
         exit_fired = False
         if take_profit:
             exit_fired = True
@@ -1624,12 +2380,22 @@ def run_step_live(symbol: str = "ETHUSDT",
             stored_regime = live_pos.get("regime") or live_pos.get("regime_at_entry")
             exit_regime = stored_regime or regime or "unknown"
 
+            # DEBUG: Log position regime data for debugging
+            print(f"REGIME_DEBUG_CLOSE: {symbol}_{timeframe} live_pos_regime={live_pos.get('regime')} live_pos_regime_at_entry={live_pos.get('regime_at_entry')} current_regime={regime} exit_regime={exit_regime}")
+
+            # Regression check: warn if we're closing with unknown regime but position had stored regime
+            if exit_regime == "unknown" and (live_pos.get("regime") or live_pos.get("regime_at_entry")):
+                print(f"REGIME_REGRESSION_WARNING: {symbol}_{timeframe} close with unknown regime but position had stored regime")
+
+            # Ensure regime is passed to close event
             close_now(
                 symbol=symbol,
                 timeframe=timeframe,
                 exit_reason=exit_reason,
                 exit_price=(actual_exit_price, {"source_used": actual_exit_px_source}) if actual_exit_price else None,
-                regime=exit_regime
+                regime=exit_regime,
+                position_data=live_pos,
+                lane_id=lane_id
             )
             
             # Log council perf event for close
@@ -1853,7 +2619,7 @@ def run_exit_evaluation_for_all_positions():
         print(f"EXIT_EVALUATION_ALL_POSITIONS_ERROR: {e}")
 
 
-def _evaluate_single_position_exit(symbol: str, timeframe: str, pos_info: dict):
+def _evaluate_single_position_exit(symbol: str, timeframe: str, pos_info: dict, lane_id: str = "unknown"):
     """
     Evaluate exit conditions for a single position.
     This replicates the exit logic from run_step_live but for a specific position.
@@ -1874,6 +2640,15 @@ def _evaluate_single_position_exit(symbol: str, timeframe: str, pos_info: dict):
     gates_reverse_min_conf = gates.get("reverse_min_conf", 0.60)
 
     policy = _load_policy()
+
+    # Resolve execution lane using canonical logic
+    from engine_alpha.risk.symbol_state import load_symbol_states
+    symbol_states = load_symbol_states()
+    sym_policy_map = symbol_states.get("symbols", {}) if isinstance(symbol_states, dict) else {}
+    symbol_policy = sym_policy_map.get(symbol, {}) if isinstance(sym_policy_map, dict) else {}
+    # Pass regime information for proper lane resolution (especially important for SCALP)
+    lane_context = {"regime": regime}
+    lane_id = resolve_lane(symbol, symbol_policy, lane_context)
 
     # Check exit conditions with P&L-based logic and time-based min-hold
     bars_open = pos_info.get("bars_open", 0)
@@ -1990,13 +2765,58 @@ def _evaluate_single_position_exit(symbol: str, timeframe: str, pos_info: dict):
 
         # Execute the close with live price and stored regime
         stored_regime = pos_info.get("regime") or pos_info.get("regime_at_entry")
+
+
+        # Track extreme TP override in trade metadata
+        trade_metadata = {}
+        if exit_reason == "tp" and lane_id == "core" and extreme_tp_override:
+            trade_metadata.update({
+                "exit_reason": "tp_override_extreme",
+                "override_trigger": f"pnl_{unrealized_pnl_pct:.2f}%_time_{position_age_seconds}s",
+                "time_held_s": position_age_seconds,
+                "blocked_by_min_hold": False
+            })
+
+        # Ensure regime and lane are passed to close event
         close_now(
             symbol=symbol,
             timeframe=timeframe,
-            exit_reason=exit_reason,
+            exit_reason=trade_metadata.get("exit_reason", exit_reason),
             exit_price=(live_price, {"source_used": live_price_meta.get("source_used")}) if live_price else None,
-            regime=stored_regime or "unknown"
+            regime=stored_regime or "unknown",
+            position_data=pos_info,
+            lane_id=lane_id,
+            **trade_metadata
         )
+
+        # Phase 5J-R: Set chop exploration cooldown on qualifying exits
+        trade_kind = pos_info.get("trade_kind", "normal")
+        # For exploration lane trades, assume chop regime if stored regime is missing
+        # (since exploration is typically used in chop when core is blocked)
+        effective_regime = stored_regime or ("chop" if lane_id == "exploration" else None)
+        if effective_regime == "chop" and lane_id == "exploration":
+            # Reset cooldown on SL, micro-signal exits, or timeouts
+            cooldown_reasons = {"sl", "drop", "decay", "timeout_max_hold", "review_bootstrap_timeout"}
+            if exit_reason in cooldown_reasons:
+                cooldown_until_dt = datetime.now(timezone.utc) + timedelta(minutes=CHOP_EXPLORATION_COOLDOWN_MINUTES)
+                cooldown_until_iso = cooldown_until_dt.isoformat().replace("+00:00", "Z")
+                _CHOP_EXPLORATION_COOLDOWN[symbol] = cooldown_until_iso
+                _save_chop_cooldowns(_CHOP_EXPLORATION_COOLDOWN)
+                print(f"CHOP_EXPLORATION_COOLDOWN_SET: {symbol} for {CHOP_EXPLORATION_COOLDOWN_MINUTES}min (reason: {exit_reason})")
+
+        # Set CORE cooldown after closing a CORE position
+        if lane_id == "core":
+            try:
+                from engine_alpha.core.config_loader import load_engine_config
+                cfg = load_engine_config()
+                core_cooldown_seconds = cfg.get("core_cooldown_seconds", 900)  # Default 15 minutes
+                cooldown_until_dt = datetime.now(timezone.utc) + timedelta(seconds=core_cooldown_seconds)
+                cooldown_until_iso = cooldown_until_dt.isoformat().replace("+00:00", "Z")
+                _CORE_COOLDOWN[symbol] = cooldown_until_iso
+                _save_core_cooldowns(_CORE_COOLDOWN)
+                print(f"CORE_COOLDOWN_SET: {symbol} for {core_cooldown_seconds}s (reason: core_close)")
+            except Exception as e:
+                print(f"CORE_COOLDOWN_SET_ERROR: {symbol} {e}")
 
         # Clear the position
         clear_position()
@@ -2005,13 +2825,38 @@ def _evaluate_single_position_exit(symbol: str, timeframe: str, pos_info: dict):
 
 
 def run_step_live_scheduled():
-    """Scheduled version of run_step_live for continuous loop."""
-    # Run for the configured symbol and timeframe
+    """Scheduled version of run_step_live for continuous loop with multi-symbol support."""
     from engine_alpha.core.config_loader import load_engine_config
+    from engine_alpha.risk.symbol_state import load_symbol_states
+
     cfg = load_engine_config()
-    symbol = cfg.get('symbol', 'ETHUSDT')
+    configured_symbol = cfg.get('symbol', 'ETHUSDT')
     timeframe = cfg.get('timeframe', '15m')
 
-    # TEMPORARY: Lower entry threshold for chop regime testing
-    run_step_live(symbol=symbol, timeframe=timeframe, entry_min_conf=0.30)
+    # Load all symbol states to determine which symbols to process
+    symbol_states = load_symbol_states()
+    active_symbols = []
+
+    if isinstance(symbol_states, dict) and 'symbols' in symbol_states:
+        for symbol, state in symbol_states['symbols'].items():
+            # Include symbols that are not explicitly disabled
+            # This includes quarantined symbols that can go to recovery
+            if not state.get('disabled', False):
+                active_symbols.append(symbol)
+
+    # If no symbols found, fall back to configured symbol
+    if not active_symbols:
+        active_symbols = [configured_symbol]
+
+    print(f"MULTI_SYMBOL_PROCESSING: Processing {len(active_symbols)} symbols: {active_symbols[:5]}{'...' if len(active_symbols) > 5 else ''}")
+
+    # Process each active symbol
+    for symbol in active_symbols:
+        try:
+            print(f"PROCESSING_SYMBOL: {symbol}")
+            # TEMPORARY: Lower entry threshold for chop regime testing
+            run_step_live(symbol=symbol, timeframe=timeframe, entry_min_conf=0.30)
+        except Exception as e:
+            print(f"ERROR_PROCESSING_SYMBOL: {symbol} - {e}")
+            # Continue processing other symbols even if one fails
 
