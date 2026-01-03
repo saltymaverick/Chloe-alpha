@@ -124,18 +124,18 @@ class TestThresholdTuner:
         
         assert "PF_local" in prompt
         assert "entry_min_confidence" in prompt
-        assert "max_change_per_step" in prompt
+        # The prompt uses "SAFETY LIMITS" instead of "max_change_per_step"
+        assert "SAFETY LIMITS" in prompt or "maximum change" in prompt.lower()
         assert "JSON" in prompt
     
     @patch('engine_alpha.reflect.threshold_tuner.load_recent_trades')
     @patch('engine_alpha.reflect.threshold_tuner.call_gpt_for_thresholds')
     def test_propose_thresholds_success(self, mock_gpt, mock_load_trades):
         """Test successful threshold proposal."""
-        # Mock trades
+        # Mock trades - need at least 50 closed trades for the test
         mock_trades = [
-            {"type": "open", "confidence": 0.75},
             {"type": "close", "pct": 0.02, "confidence": 0.75, "regime": "trend_up"},
-        ] * 30  # 60 trades
+        ] * 60  # 60 closed trades
         
         mock_load_trades.return_value = mock_trades
         

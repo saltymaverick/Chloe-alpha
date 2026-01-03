@@ -568,6 +568,7 @@ def open_if_allowed(
     signal_dict: Dict[str, Any] = None,
     persist_position: bool = True,
     trade_kind_override: Optional[str] = None,
+    lane_id: str = None,
 ) -> bool:
     """
     PAPER-only open. final_dir ∈ {-1,0,+1}. Blocks duplicate direction.
@@ -597,13 +598,17 @@ def open_if_allowed(
     trade_kind = trade_kind_override or ("exploration" if exploration_pass else "normal")
     if strategy == "recovery_v2":
         trade_kind = "recovery_v2"
-    lane = "exploration" if trade_kind == "exploration" else ("recovery" if trade_kind == "recovery_v2" else "core")
+    # Use lane_id passed from caller (single source of truth)
+    lane = lane_id or "unknown"
 
     if DEBUG_SIGNALS:
         print(
             f"OPEN-LOG ATTEMPT symbol={symbol} tf={timeframe} trade_kind={trade_kind} "
             f"dir={final_dir} conf={final_conf:.4f} entry_min={entry_min_conf:.4f}"
         )
+    
+    # Initialize exploration cap early (used below in symbol policy block)
+    effective_exploration_cap = None
     
     # Symbol policy + quarantine (single source of truth)
     try:
@@ -619,19 +624,49 @@ def open_if_allowed(
             return False
 
         # Enforce lane permissions even in review/unknown modes; default block if missing policy
-        allow_map = {
-            "core": sym_policy.get("allow_core", False),
-            "exploration": sym_policy.get("allow_exploration", False),
-            "recovery": sym_policy.get("allow_recovery", False),
-        }
-        if not allow_map.get(lane, False):
-            if DEBUG_SIGNALS:
-                print(
-                    f"POLICY_BLOCK_OPEN symbol={symbol} lane={lane} "
-                    f"allow_core={allow_map.get('core')} allow_expl={allow_map.get('exploration')} "
-                    f"allow_rec={allow_map.get('recovery')}"
-                )
+        # Build allow_map dynamically from all lanes in registry
+        try:
+            from engine_alpha.core.registries import get_all_lane_ids
+            all_lane_ids = get_all_lane_ids()
+        except Exception:
+            # Fallback to known lanes
+            all_lane_ids = {"core", "exploration", "recovery", "scalp", "expansion"}
+        
+        allow_map = {}
+        for lane_id in all_lane_ids:
+            allow_key = f"allow_{lane_id}"
+            allow_map[lane_id] = sym_policy.get(allow_key, False)
+        
+        # Special handling for expansion fallback (legacy compatibility)
+        if "expansion" in allow_map and not allow_map["expansion"]:
+            # Fallback to exploration or scalp tier if expansion not explicitly set
+            allow_map["expansion"] = sym_policy.get("allow_exploration", False) or sym_policy.get("allow_scalp", False)
+
+        # Add hard error logging for unknown lanes to prevent silent blocking
+        if lane not in allow_map:
+            print(f"UNKNOWN_LANE_ID_BLOCK: symbol={symbol} lane={lane} allow_map_keys={list(allow_map.keys())} policy_core={sym_policy.get('allow_core')} policy_expl={sym_policy.get('allow_exploration')} policy_scalp={sym_policy.get('allow_scalp')} policy_rec={sym_policy.get('allow_recovery')}")
             return False
+        if not allow_map.get(lane, False):
+            # Fallback: if core is blocked but exploration is allowed, switch to exploration
+            if lane == "core" and allow_map.get("exploration", False):
+                if DEBUG_SIGNALS:
+                    print(
+                        f"POLICY_FALLBACK_EXPLORATION symbol={symbol} core_blocked exploration_allowed "
+                        f"allow_core={allow_map.get('core')} allow_expl={allow_map.get('exploration')} "
+                        f"allow_rec={allow_map.get('recovery')}"
+                    )
+                lane = "exploration"
+                trade_kind = "exploration"
+                # Re-get caps for exploration lane
+                lane_caps = caps_by_lane.get(lane, {})
+            else:
+                if DEBUG_SIGNALS:
+                    print(
+                        f"POLICY_BLOCK_OPEN symbol={symbol} lane={lane} "
+                        f"allow_core={allow_map.get('core')} allow_expl={allow_map.get('exploration')} "
+                        f"allow_rec={allow_map.get('recovery')}"
+                    )
+                return False
 
         # Apply per-lane risk cap
         if isinstance(lane_caps, dict) and "risk_mult_cap" in lane_caps:
@@ -642,7 +677,7 @@ def open_if_allowed(
                 pass
 
         # Exploration risk-off cap: keep exploration alive at tiny size in risk-off modes
-        if trade_kind == "exploration" and capital_mode in {"halt_new_entries", "de_risk"}:
+        if lane == "exploration" and capital_mode in {"halt_new_entries", "de_risk"}:
             risk_mult = min(risk_mult, 0.05)
             if DEBUG_SIGNALS:
                 print(f"EXPL_RISKOFF_CAP symbol={symbol} risk_mult={risk_mult:.3f} capital_mode={capital_mode}")
@@ -655,7 +690,7 @@ def open_if_allowed(
                 return False
             if lane != "exploration":
                 lane = "exploration"
-                trade_kind = "exploration"
+                trade_kind = "exploration"  # Keep for backward compatibility in logs
             risk_mult = min(risk_mult, rb_rmult_cap)
             if DEBUG_SIGNALS:
                 print(f"EXPL_REVIEW_CAP symbol={symbol} risk_mult={risk_mult:.3f} capital_mode={capital_mode}")
@@ -671,7 +706,7 @@ def open_if_allowed(
                 print(f"EXPL_REVIEW_CAP symbol={symbol} risk_mult={risk_mult:.3f} capital_mode={capital_mode}")
 
         # Apply per-lane max positions to exploration cap if present
-        if trade_kind == "exploration" and isinstance(lane_caps, dict) and "max_positions" in lane_caps:
+        if lane == "exploration" and isinstance(lane_caps, dict) and "max_positions" in lane_caps:
             try:
                 sym_cap = int(lane_caps.get("max_positions"))
                 if sym_cap > 0:
@@ -721,7 +756,7 @@ def open_if_allowed(
 
     # Exploration accelerator overrides (cooldown + cap) apply only to exploration_pass trades
     exploration_override = None
-    effective_exploration_cap = None
+    # Note: effective_exploration_cap is initialized earlier (before symbol policy block)
     exploration_cooldown_s = None
 
     if exploration_pass:
@@ -874,6 +909,7 @@ def open_if_allowed(
         "symbol": symbol,
         "timeframe": timeframe,
         "trade_kind": trade_kind,
+        "lane_id": lane_id,  # Store lane_id for exit evaluation
         "last_ts": ts_now,
         "entry_ts": ts_now,
         "risk_mult": risk_mult,
@@ -886,7 +922,6 @@ def open_if_allowed(
         if persist_position:
             try:
                 from engine_alpha.loop.position_manager import set_live_position as _set_live_position
-
                 _set_live_position(position_payload, symbol=symbol, timeframe=timeframe)
             except Exception:
                 # Never block an open because persistence failed
@@ -903,6 +938,7 @@ def open_if_allowed(
         "type": "open",
         "symbol": symbol,  # Always include symbol
         "timeframe": timeframe,  # Always include timeframe
+        "lane_id": lane_id or lane,  # Execution lane identifier
         "dir": final_dir,
         "pct": 0.0,
         "risk_mult": float(risk_mult),
@@ -997,6 +1033,8 @@ def close_now(
     max_adverse_pct: float = None,
     symbol: str = None,
     timeframe: str = None,
+    position_data: dict = None,
+    lane_id: str = None,
     **kwargs,
 ) -> None:
     """
@@ -1329,11 +1367,31 @@ def close_now(
     # Build close event with extended fields
     entry_px_log = entry_price if entry_price is not None else pos.get("entry_px") if pos else None
     ts_now = _now()
+    # Ensure entry_ts is available for duration calculation
+    entry_ts = None
+    if position_data is not None:
+        entry_ts = position_data.get("entry_ts")
+    elif pos is not None:
+        entry_ts = pos.get("entry_ts")
+    elif symbol_val and timeframe_val:
+        # Fallback: try to load from position state
+        try:
+            from engine_alpha.loop.position_manager import load_position_state
+            ps = load_position_state()
+            key = f"{symbol_val.upper()}_{timeframe_val.lower()}"
+            pos_data = ps.get(key)
+            if pos_data:
+                entry_ts = pos_data.get("entry_ts")
+        except Exception:
+            pass
+
     close_event = {
         "ts": ts_now,
         "type": "close",
         "symbol": symbol_val if symbol_val else "UNKNOWN",  # Always include symbol
         "timeframe": timeframe_val if timeframe_val else _get_default_timeframe(),  # Always include timeframe
+        "lane_id": lane_id or "unknown",  # Execution lane identifier
+        "entry_ts": entry_ts,  # Added for duration calculation without pairing
         "pct": computed_pct,
         "fee_bps": ACCOUNTING["taker_fee_bps"] * 2.0,
         "slip_bps": ACCOUNTING["slip_bps"],
@@ -1362,6 +1420,49 @@ def close_now(
         close_event["regime"] = str(regime)
     else:
         close_event["regime"] = "unknown"  # Default if missing
+
+    # Set lane_id and regime at entry from position data
+    entry_lane_id = lane_id  # Use passed lane_id first
+    entry_regime = None
+
+    if not entry_lane_id:
+        # Fallback to position data
+        if position_data is not None:
+            entry_lane_id = position_data.get("lane_id")
+            if DEBUG_SIGNALS and entry_lane_id:
+                print(f"CLOSE_LANE_DEBUG: extracted lane_id={entry_lane_id} from position_data for {symbol}")
+        elif pos is not None:
+            entry_lane_id = pos.get("lane_id")
+            if DEBUG_SIGNALS and entry_lane_id:
+                print(f"CLOSE_LANE_DEBUG: extracted lane_id={entry_lane_id} from pos for {symbol}")
+        else:
+            if DEBUG_SIGNALS:
+                print(f"CLOSE_LANE_DEBUG: no lane_id source found for {symbol}, using 'unknown'")
+
+    if position_data is not None:
+        entry_regime = position_data.get("regime") or position_data.get("regime_at_entry")
+    elif pos is not None:
+        entry_regime = pos.get("regime") or pos.get("regime_at_entry")
+    elif symbol_val and timeframe_val:
+        # Fallback: try to load from position state
+        try:
+            from engine_alpha.loop.position_manager import load_position_state
+            ps = load_position_state()
+            key = f"{symbol_val.upper()}_{timeframe_val.lower()}"
+            pos_data = ps.get(key)
+            if pos_data:
+                entry_lane_id = entry_lane_id or pos_data.get("lane_id")
+                entry_regime = pos_data.get("regime") or pos_data.get("regime_at_entry")
+        except Exception:
+            pass
+
+    # Set lane_id in close event
+    close_event["lane_id"] = entry_lane_id or "unknown"
+
+    if entry_regime:
+        close_event["regime_at_entry"] = str(entry_regime)
+    else:
+        close_event["regime_at_entry"] = "unknown"
     
     if risk_band is not None:
         close_event["risk_band"] = str(risk_band)
@@ -1380,18 +1481,63 @@ def close_now(
             close_event["risk_mult"] = 1.0  # Default if invalid
     else:
         close_event["risk_mult"] = 1.0  # Default if missing
-    
+
     if max_adverse_pct is not None:
         try:
             close_event["max_adverse_pct"] = float(max_adverse_pct)
         except (TypeError, ValueError):
             pass
-    
+
+    # Compute duration and bars_open for the close event
+    try:
+        entry_ts = pos.get("entry_ts") if pos else None
+        if entry_ts:
+            from dateutil import parser
+            import math
+
+            # Convert timestamps to datetime objects
+            entry_dt = parser.isoparse(entry_ts.replace("Z", "+00:00"))
+            exit_dt = parser.isoparse(ts_now.replace("Z", "+00:00"))
+
+            duration_s = int((exit_dt - entry_dt).total_seconds())
+            close_event["duration_s"] = max(duration_s, 0)
+
+            # Compute bars_open using the same logic as API readers
+            tf_sec = 3600  # 1h = 3600 seconds
+            close_event["bars_open"] = max(int(math.ceil(duration_s / tf_sec)), 0)
+    except Exception:
+        close_event["duration_s"] = None
+        close_event["bars_open"] = None
+
     # Write via TRADE_WRITER if set (backtest), otherwise use default _append_trade (live/paper)
     if TRADE_WRITER is not None:
         TRADE_WRITER.write_close(close_event)
     else:
         _append_trade(close_event)
+
+    # Set CORE cooldown after CORE trade closes
+    if entry_lane_id == "core":
+        try:
+            from engine_alpha.loop.autonomous_trader import _CORE_COOLDOWN, _save_core_cooldowns
+
+            # If this was a safety exit (SL), use longer cooldown (60 minutes)
+            # Otherwise use normal cooldown (15 minutes)
+            exit_reason_lower = (exit_reason or "").lower()
+            is_safety_exit = exit_reason_lower in {"sl", "stop_loss", "hard_invalidation", "risk_halt"}
+
+            if is_safety_exit:
+                cooldown_minutes = 60  # Longer cooldown after SL
+                cooldown_reason = "post_sl_cooldown"
+            else:
+                cooldown_minutes = 15  # Normal cooldown
+                cooldown_reason = "normal_cooldown"
+
+            cooldown_end = (datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(minutes=cooldown_minutes))
+            _CORE_COOLDOWN[symbol_val] = cooldown_end.isoformat()
+            _save_core_cooldowns(_CORE_COOLDOWN)
+            print(f"CORE_COOLDOWN_SET: {symbol_val} {cooldown_reason} ends at {cooldown_end.isoformat()} ({cooldown_minutes}min)")
+        except Exception as e:
+            print(f"CORE_COOLDOWN_SET_ERROR: {symbol_val} failed to set cooldown: {e}")
 
     # Resolve counterfactual for this closed trade
     try:
@@ -1401,12 +1547,29 @@ def close_now(
             exit_ts=ts_now,
             actual_pnl_pct=computed_pct,
             exit_reason=exit_reason_val,
-            regime_at_exit=close_event.get("regime", "unknown")
+            regime_at_exit=close_event.get("regime", "unknown"),
+            lane_id=lane_id
         )
     except Exception as e:
         # Counterfactual resolution failure shouldn't break trading
         if DEBUG_SIGNALS:
             print(f"COUNTERFACTUAL_RESOLUTION_ERROR: {e}")
+
+    # Update recovery progress tracking for quarantined symbols
+    if lane_id == "recovery":
+        try:
+            from engine_alpha.reflect.recovery_progress import update_recovery_progress
+            trade_result = {
+                'ts': ts_now.isoformat(),
+                'pct': computed_pct,
+                'exit_reason': exit_reason_val,
+                'duration_s': close_event.get('duration_s', 0),
+                'regime': close_event.get('regime', 'unknown')
+            }
+            update_recovery_progress(symbol_val, trade_result)
+            print(f"RECOVERY_PROGRESS_UPDATED: {symbol_val} pct={computed_pct:.4f}")
+        except Exception as e:
+            print(f"RECOVERY_PROGRESS_UPDATE_ERROR: {symbol_val} {e}")
 
     if DEBUG_SIGNALS:
         print(

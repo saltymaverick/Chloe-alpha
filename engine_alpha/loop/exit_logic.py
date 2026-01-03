@@ -71,7 +71,16 @@ def should_exit_trade(
     
     # Exit reason 3: Regime flip (if enabled)
     if regime_flip_exit_enabled:
-        primary_regime = regime_state.primary.lower() if hasattr(regime_state, 'primary') else str(regime_state.get("primary", "")).lower()
+        # Handle regime_state being either object with .primary attribute or dict
+        if hasattr(regime_state, 'primary'):
+            primary_regime = str(regime_state.primary).lower()
+            primary_regime_display = regime_state.primary
+        elif isinstance(regime_state, dict):
+            primary_regime = str(regime_state.get("primary", regime_state.get("regime", ""))).lower()
+            primary_regime_display = regime_state.get("primary", regime_state.get("regime", "unknown"))
+        else:
+            primary_regime = str(regime_state).lower()
+            primary_regime_display = str(regime_state)
         
         # Check if regime flipped against position
         if position_side == "long":
@@ -79,14 +88,14 @@ def should_exit_trade(
             if "down" in primary_regime and "trend" in primary_regime:
                 return {
                     "exit": True,
-                    "reason": f"exit: regime flipped TREND_UP -> {regime_state.primary} (unfavorable for long)",
+                    "reason": f"exit: regime flipped TREND_UP -> {primary_regime_display} (unfavorable for long)",
                 }
         elif position_side == "short":
             # Short position: exit if regime flipped to trend_up
             if "up" in primary_regime and "trend" in primary_regime:
                 return {
                     "exit": True,
-                    "reason": f"exit: regime flipped TREND_DOWN -> {regime_state.primary} (unfavorable for short)",
+                    "reason": f"exit: regime flipped TREND_DOWN -> {primary_regime_display} (unfavorable for short)",
                 }
     
     # Exit reason 4: Signal direction flip (optional)
@@ -105,12 +114,20 @@ def should_exit_trade(
             }
     
     # No exit conditions met
+    # Safely get regime display string
+    if hasattr(regime_state, 'primary'):
+        regime_display = regime_state.primary
+    elif isinstance(regime_state, dict):
+        regime_display = regime_state.get("primary", regime_state.get("regime", "unknown"))
+    else:
+        regime_display = str(regime_state)
+    
     return {
         "exit": False,
         "reason": (
             f"hold: conf={confidence_state.confidence:.2f}, "
             f"drift={drift_state.drift_score:.2f}, "
-            f"regime={regime_state.primary if hasattr(regime_state, 'primary') else regime_state.get('primary', 'unknown')}"
+            f"regime={regime_display}"
         ),
     }
 
